@@ -9,7 +9,7 @@ PROJ_NAME=GPIO-std
 # This is the directory containing the firmware package,
 # the unzipped folder downloaded from here:
 # http://www.st.com/web/en/catalog/tools/PF257904
-STM_DIR=../../../STM32F4xx_DSP_StdPeriph_Lib_V1.3.0
+STM_DIR=../../STM32F4xx_DSP_StdPeriph_Lib_V1.3.0
 
 # This is where the source files are located,
 # which are not in the current directory
