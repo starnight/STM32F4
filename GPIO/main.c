@@ -116,7 +116,7 @@ static void flash_all_leds(void) {
 int main(void) {
     uint8_t i = 0;
     /* Current & previous state of User Button. */
-	uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
+    uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
 
     /* Setup input / output for User Button and LEDs. */
     setup_leds();
@@ -131,13 +131,13 @@ int main(void) {
         /* Check the User Button is pressed or not. */
         if((nstate == 1) && (pstate == 0)) {
             /* If the User Button is pressed. */
-			/* Turn off all LEDS. */
+            /* Turn off all LEDS. */
             GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
             /* Choose next LED and turn it on. */
             i = (i + 1) % LEDn;
             GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
         }
-		/* Save the current state by previous state. */
+        /* Save the current state by previous state. */
         pstate = nstate;
         /* Avoid button ocsillation. */
         delay(PAUSE_SHORT);
