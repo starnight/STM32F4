@@ -27,7 +27,8 @@
 static uint16_t leds[LEDn] = {GREEN, ORANGE, RED, BLUE};
 
 /* This is how long we wait in the delay function. */
-#define PAUSE_SHORT 1000000L
+#define LED_LONG    1000000L
+#define PAUSE_SHORT 10000L
 
 /* A simple time comsuming function. */
 static void delay(__IO uint32_t nCount) {
@@ -38,7 +39,7 @@ static void delay(__IO uint32_t nCount) {
 /* Initialize the GPIO port D for output LEDs. */
 static void setup_leds(void) {
     /* Structure storing the information of GPIO Port D. */
-	static GPIO_InitTypeDef GPIO_InitStructure;
+    static GPIO_InitTypeDef GPIO_InitStructure;
 
     /* Enable the GPIOD peripheral clock. */
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
@@ -67,20 +68,20 @@ static void setup_button(void) {
     /* Enable the GPIOA peripheral clock. */
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
     /* Pin number of User Button is mapped to a bit number. */
-	GPIO_InitStructure.GPIO_Pin   = USER_BUTTON;
+    GPIO_InitStructure.GPIO_Pin   = USER_BUTTON;
     /* Pin in input mode. */
-	GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_IN;
+    GPIO_InitStructure.GPIO_Mode  = GPIO_Mode_IN;
     /* Clock speed rate for the selected pins. */
-	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_2MHz;
     /* Operating output type for the selected pins. */
-	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     /* Operating Pull-up/Pull down for the selected pins. */
-	GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_DOWN;
+    GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_DOWN;
     
-	/* Write this data into memory at the address
+    /* Write this data into memory at the address
      * mapped to GPIO device port A, where the led pins
      * are connected */
-	GPIO_Init(BUTTON_GPIO_PORT, &GPIO_InitStructure);
+    GPIO_Init(BUTTON_GPIO_PORT, &GPIO_InitStructure);
 }
 
 /* Get the status of User Button.
@@ -99,11 +100,11 @@ static void flash_all_leds(void) {
         /* Turn on all user leds */
         GPIO_SetBits(LEDS_GPIO_PORT, ALL_LEDS);
         /* Wait a short time */
-        delay(PAUSE_SHORT);
+        delay(LED_LONG);
         /* Turn off all leds */
         GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
         /* Wait again before looping */
-        delay(PAUSE_SHORT);
+        delay(LED_LONG);
     }
 }
 
@@ -114,6 +115,8 @@ static void flash_all_leds(void) {
  */
 int main(void) {
     uint8_t i = 0;
+    /* Current & previous state of User Button. */
+	uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
 
     /* Setup input / output for User Button and LEDs. */
     setup_leds();
@@ -124,16 +127,20 @@ int main(void) {
     GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
 
     while (1) {
+        nstate = read_button();
         /* Check the User Button is pressed or not. */
-        if(read_button()) {
-            /* Avoid button ocsillation. */
-            delay(PAUSE_SHORT);
-            /* Turn off all LEDS. */
+        if((nstate == 1) && (pstate == 0)) {
+            /* If the User Button is pressed. */
+			/* Turn off all LEDS. */
             GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
             /* Choose next LED and turn it on. */
             i = (i + 1) % LEDn;
             GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
         }
+		/* Save the current state by previous state. */
+        pstate = nstate;
+        /* Avoid button ocsillation. */
+        delay(PAUSE_SHORT);
     }
 
     return 0; // never returns actually
