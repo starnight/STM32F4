@@ -26,6 +26,12 @@
 /* The array stores the led order used to switch them on and off. */
 static uint16_t leds[LEDn] = {GREEN, ORANGE, RED, BLUE};
 
+/* Check Timer 6 is timeout or not. */
+#define is_timeout()    (TIM_GetFlagStatus(TIM6, TIM_FLAG_Update) == SET)
+
+/* Reset the Timer 6 update flag which is for timeout. */
+#define reset_timeout() (TIM_ClearFlag(TIM6, TIM_FLAG_Update))
+
 /* This is how long we wait in the delay function. */
 #define LED_LONG    1000000L
 #define PAUSE_SHORT 10000L
@@ -84,14 +90,6 @@ static void setup_button(void) {
     GPIO_Init(BUTTON_GPIO_PORT, &GPIO_InitStructure);
 }
 
-/* Get the status of User Button.
- * 0: Not pressed.
- * 1: Pressed.
- */
-static uint8_t read_button(void) {
-    return GPIO_ReadInputDataBit(BUTTON_GPIO_PORT, USER_BUTTON);    
-}
-
 /* Turn all leds on and off 4 times. */
 static void flash_all_leds(void) {
     int i;
@@ -106,6 +104,51 @@ static void flash_all_leds(void) {
         /* Wait again before looping */
         delay(LED_LONG);
     }
+}
+
+/* Light LEDs in order. */
+static void light_leds(int8_t step) {
+    static int8_t i = 0;
+
+    /* Check it is timeput or not. */
+    if(is_timeout()) {
+        /* Clear the timeout flag. */
+        reset_timeout();
+        /* Turn off all LEDS. */
+        GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
+        /* Choose next LED and turn it on. */
+        i = (i + step + LEDn) % LEDn;
+        GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
+    }
+}
+
+/* Get the status of User Button.
+ * 0: Not pressed.
+ * 1: Pressed.
+ */
+#define read_button() (GPIO_ReadInputDataBit(BUTTON_GPIO_PORT, USER_BUTTON))
+
+/* Get LEDs' lighting direction.
+ *  1: Clockwise.
+ * -1: Counterclockwise.
+ */
+static int8_t get_leds_direction(void) {
+    static int8_t step = 1;
+    /* Current & previous state of User Button. */
+    static uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
+
+    nstate = read_button();
+    /* Check the User Button is pressed or not. */
+    if((nstate == 1) && (pstate == 0)) {
+        /* If the User Button is pressed, reverse the direction. */
+        step *= -1;
+        /* Avoid button ocsillation. */
+        delay(PAUSE_SHORT);
+    }
+    /* Save the current state by previous state. */
+    pstate = nstate;
+
+    return step;
 }
 
 /* Initial Timer 6 for timing. */
@@ -133,22 +176,13 @@ void setup_timer(void) {
     TIM_Cmd(TIM6, ENABLE);
 }
 
-/* Check Timer 6 is timeout or not. */
-#define is_timeout()    (TIM_GetFlagStatus(TIM6, TIM_FLAG_Update) == SET)
-
-/* Reset the Timer 6 update flag which is for timeout. */
-#define reset_timeout()    (TIM_ClearFlag(TIM6, TIM_FLAG_Update))
-
 /* Main function, the entry point of this program.
  * The main function is called from the startup code in file
  * Libraries/CMSIS/Device/ST/STM32F4xx/Source/Templates/TrueSTUDIO/
  * startup_stm32f40_41xxx.s  (line 107)
  */
 int main(void) {
-    int8_t i = 0;
-    int8_t step = 1;
-    /* Current & previous state of User Button. */
-    uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
+    int8_t step;
 
     /* Setup input / output for User Button and LEDs. */
     setup_leds();
@@ -159,29 +193,12 @@ int main(void) {
 
     /* Wellcome LEDs. */
     flash_all_leds();
-    GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
 
     while (1) {
-        nstate = read_button();
-        /* Check the User Button is pressed or not. */
-        if((nstate == 1) && (pstate == 0)) {
-            /* If the User Button is pressed, reverse the direction. */
-            step *= -1;
-            /* Avoid button ocsillation. */
-            delay(PAUSE_SHORT);
-        }
-        /* Save the current state by previous state. */
-        pstate = nstate;
-        /* Check it is timeput or not. */
-        if(is_timeout()) {
-            /* Clear the timeout flag. */
-            reset_timeout();
-            /* Turn off all LEDS. */
-            GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
-            /* Choose next LED and turn it on. */
-            i = (i + step + LEDn) % LEDn;
-            GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
-        }
+        /* Get the lighting direction. */
+        step = get_leds_direction();
+        /* Light LEDs in order. */
+        light_leds(step);
     }
 
     return 0; // never returns actually
