@@ -1,6 +1,6 @@
 /*
- * This program turns on the 4 leds of the stm32f4 discovery board
- * with pressed user button in order.
+ * This program turns on the 4 leds of the stm32f4 discovery board in order with
+ * Timer 6.  Change the lighting direction by pressing user button.
  */
 
 /* Include STM32F4 and standard peripherals configuration headers. */
@@ -33,13 +33,48 @@ static uint16_t leds[LEDn] = {GREEN, ORANGE, RED, BLUE};
 #define reset_timeout() (TIM_ClearFlag(TIM6, TIM_FLAG_Update))
 
 /* This is how long we wait in the delay function. */
-#define LED_LONG    1000000L
-#define PAUSE_SHORT 10000L
+#define LED_LONG    8400L
+#define PAUSE_SHORT 20L
+
+/* The delay counters for specific purpose. */
+int16_t led_long = LED_LONG;
+int16_t pause_short = PAUSE_SHORT;
 
 /* A simple time comsuming function. */
-static void delay(__IO uint32_t nCount) {
-    while(nCount--)
-        __asm("nop"); // do nothing
+static void delay(void) {
+    /* Check it is timeput or not. */
+    while(is_timeout()) {
+        /* Clear the timeout flag. */
+        reset_timeout();
+        /* Decrease counters. */
+        led_long--;
+        pause_short--;
+    }
+}
+
+/* Initial Timer 6 for timing. */
+void setup_timer(void) {
+    /* Structure storing the information of Timer 6. */
+    TIM_TimeBaseInitTypeDef TIM_BaseStruct;
+
+    /* Enable Timer 6 clock. */
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
+
+    /* Set the timing clock prescaler. */
+    TIM_BaseStruct.TIM_Prescaler = 100 - 1;
+    /* Set the timer count up. */
+    TIM_BaseStruct.TIM_CounterMode = TIM_CounterMode_Up;
+    /* Set the timer's top counting value. */
+    TIM_BaseStruct.TIM_Period = 10 - 1;
+    /* Set the internal clock division. */
+    TIM_BaseStruct.TIM_ClockDivision = TIM_CKD_DIV1;
+    /* No repetition counter for Timer 6. */
+    TIM_BaseStruct.TIM_RepetitionCounter = 0;
+
+    /* Write this data into memory at the address mapped to Timer 6. */
+    TIM_TimeBaseInit(TIM6, &TIM_BaseStruct);
+    /* Enable Timer 6's counter. */
+    TIM_Cmd(TIM6, ENABLE);
 }
 
 /* Initialize the GPIO port D for output LEDs. */
@@ -83,7 +118,7 @@ static void setup_button(void) {
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     /* Operating Pull-up/Pull down for the selected pins. */
     GPIO_InitStructure.GPIO_PuPd  = GPIO_PuPd_DOWN;
-    
+
     /* Write this data into memory at the address
      * mapped to GPIO device port A, where the led pins
      * are connected */
@@ -93,16 +128,19 @@ static void setup_button(void) {
 /* Turn all leds on and off 4 times. */
 static void flash_all_leds(void) {
     int i;
-    for (i = 0; i < 4; i++)
+
+    /* Turn off all leds */
+    GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
+
+    for (i = 0; i < 8; i++)
     {
         /* Turn on all user leds */
-        GPIO_SetBits(LEDS_GPIO_PORT, ALL_LEDS);
+        GPIO_ToggleBits(LEDS_GPIO_PORT, ALL_LEDS);
         /* Wait a short time */
-        delay(LED_LONG);
-        /* Turn off all leds */
-        GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
-        /* Wait again before looping */
-        delay(LED_LONG);
+        while(led_long > 0) {
+            delay();
+        }
+        led_long = LED_LONG;
     }
 }
 
@@ -110,10 +148,9 @@ static void flash_all_leds(void) {
 static void light_leds(int8_t step) {
     static int8_t i = 0;
 
-    /* Check it is timeput or not. */
-    if(is_timeout()) {
-        /* Clear the timeout flag. */
-        reset_timeout();
+    /* Check it is delay enough time. */
+    if(led_long <= 0) {
+        led_long = LED_LONG;
         /* Turn off all LEDS. */
         GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
         /* Choose next LED and turn it on. */
@@ -143,37 +180,15 @@ static int8_t get_leds_direction(void) {
         /* If the User Button is pressed, reverse the direction. */
         step *= -1;
         /* Avoid button ocsillation. */
-        delay(PAUSE_SHORT);
+        while(pause_short > 0) {
+            delay();
+        }
+        pause_short = PAUSE_SHORT;
     }
     /* Save the current state by previous state. */
     pstate = nstate;
 
     return step;
-}
-
-/* Initial Timer 6 for timing. */
-void setup_timer(void) {
-    /* Structure storing the information of Timer 6. */
-    TIM_TimeBaseInitTypeDef TIM_BaseStruct;
-    
-    /* Enable Timer 6 clock. */
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
-
-    /* Set the timing clock prescaler. */
-    TIM_BaseStruct.TIM_Prescaler = 42000 - 1;
-    /* Set the timer count up. */
-    TIM_BaseStruct.TIM_CounterMode = TIM_CounterMode_Up;
-    /* Set the timer's top counting value. */
-    TIM_BaseStruct.TIM_Period = 500 - 1;
-    /* Set the internal clock division. */
-    TIM_BaseStruct.TIM_ClockDivision = TIM_CKD_DIV1;
-    /* No repetition counter for Timer 6. */
-    TIM_BaseStruct.TIM_RepetitionCounter = 0;
-
-    /* Write this data into memory at the address mapped to Timer 6. */
-    TIM_TimeBaseInit(TIM6, &TIM_BaseStruct);
-    /* Enable Timer 6's counter. */
-    TIM_Cmd(TIM6, ENABLE);
 }
 
 /* Main function, the entry point of this program.
@@ -195,6 +210,8 @@ int main(void) {
     flash_all_leds();
 
     while (1) {
+        /* Check delay time. */
+        delay();
         /* Get the lighting direction. */
         step = get_leds_direction();
         /* Light LEDs in order. */
