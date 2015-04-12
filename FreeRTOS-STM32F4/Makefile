@@ -1,5 +1,5 @@
 # Name of the binaries.
-PROJ_NAME=GPIO-std
+PROJ_NAME=FreeRTOS-STM32F4-GPIO
 
 ######################################################################
 #                         SETUP SOURCES                              #
@@ -16,6 +16,14 @@ STM_DIR=../../STM32F4xx_DSP_StdPeriph_Lib_V1.3.0
 # (the sources of the standard peripheral library, which we use)
 # see also "info:/make/Selective Search" in Konqueror
 STM_SRC = $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/src
+
+# This is the directory containing FreeRTOS
+FREERTOS_DIR=../../FreeRTOSV8.2.1/FreeRTOS
+
+# These are where the FreeRTOS files located
+FREERTOS_SRC=$(FREERTOS_DIR)/Source
+FREERTOS_PORT=$(FREERTOS_SRC)/portable
+FREERTOS_PORT_PLAT=$(FREERTOS_PORT)/GCC/ARM_CM4F
 
 # Tell make to look in that folder if it cannot find a source
 # in the current directory
@@ -39,12 +47,21 @@ SRCS  += stm32f4xx_gpio.c
 # executed. Normally you do not change this file.
 SRCS += $(STM_DIR)/Libraries/CMSIS/Device/ST/STM32F4xx/Source/Templates/TrueSTUDIO/startup_stm32f40_41xxx.s
 
+# The source files of FreeRTOS
+SRCS +=$(FREERTOS_SRC)/*.c
+SRCS +=$(FREERTOS_PORT)/MemMang/heap_1.c
+SRCS +=$(FREERTOS_PORT_PLAT)/port.c
+
 # The header files we use are located here
 #INC_DIRS  = $(STM_DIR)/Utilities/STM32F4-Discovery
 INC_DIRS  = $(STM_DIR)/Libraries/CMSIS/Include
 INC_DIRS += $(STM_DIR)/Libraries/CMSIS/Device/ST/STM32F4xx/Include
 INC_DIRS += $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/inc
 INC_DIRS += include
+
+# The header files of FreeRTOS
+INC_DIRS += $(FREERTOS_SRC)/include
+INC_DIRS += $(FREERTOS_PORT_PLAT)
 
 # in case we have to many sources and don't want 
 # to compile all sources every time
