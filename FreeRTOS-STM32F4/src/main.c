@@ -7,6 +7,9 @@
 #include <stm32f4xx.h>
 #include "stm32f4xx_conf.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 /* Define the readable hardware memory address, according to the
  * schematic of STM32F4-Discovery.
  */
@@ -108,25 +111,12 @@ static void flash_all_leds(void) {
     }
 }
 
-/* Main function, the entry point of this program.
- * The main function is called from the startup code in file
- * Libraries/CMSIS/Device/ST/STM32F4xx/Source/Templates/TrueSTUDIO/
- * startup_stm32f40_41xxx.s  (line 107)
- */
-int main(void) {
-    uint8_t i = 0;
+void main_task() {
+	static uint8_t i = 0;
     /* Current & previous state of User Button. */
-    uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
+    static uint8_t nstate = 0, pstate = 0; // 0: Not pressed, 1: pressed.
 
-    /* Setup input / output for User Button and LEDs. */
-    setup_leds();
-    setup_button();
-
-    /* Wellcome LEDs. */
-    flash_all_leds();
-    GPIO_SetBits(LEDS_GPIO_PORT, leds[i]);
-
-    while (1) {
+	while (1) {
         nstate = read_button();
         /* Check the User Button is pressed or not. */
         if((nstate == 1) && (pstate == 0)) {
@@ -142,6 +132,27 @@ int main(void) {
         /* Avoid button ocsillation. */
         delay(PAUSE_SHORT);
     }
+}
+
+/* Main function, the entry point of this program.
+ * The main function is called from the startup code in file
+ * Libraries/CMSIS/Device/ST/STM32F4xx/Source/Templates/TrueSTUDIO/
+ * startup_stm32f40_41xxx.s  (line 107)
+ */
+int main(void) {
+    /* Setup input / output for User Button and LEDs. */
+    setup_leds();
+    setup_button();
+
+    /* Wellcome LEDs. */
+    flash_all_leds();
+    GPIO_SetBits(LEDS_GPIO_PORT, leds[0]);
+
+	/* Add the main task into FreeRTOS task scheduler. */
+	xTaskCreate(main_task, "Main Task", 512, NULL, tskIDLE_PRIORITY, NULL);
+
+	/* Start FreeRTOS task scheduler. */
+	vTaskStartScheduler();
 
     return 0; // never returns actually
 }
