@@ -20,11 +20,11 @@ According to the schematic of [STM32F4-Discovery](http://www.st.com/st-web-ui/st
 
 * LED4 (Green): PD12 connected to LD4
 
-* LED3 (Orange): PD13 connected to LD4
+* LED3 (Orange): PD13 connected to LD3
 
-* LED5 (Red): PD14 connected to LD4
+* LED5 (Red): PD14 connected to LD5
 
-* LED6 (Blue): PD15 connected to LD4
+* LED6 (Blue): PD15 connected to LD6
 
 * User Button: PA0 connected to B1
 
