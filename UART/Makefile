@@ -10,7 +10,6 @@ PROJ_NAME=UART-std
 # the unzipped folder downloaded from here:
 # http://www.st.com/web/en/catalog/tools/PF257904
 STM_DIR=../../STM32F4xx_DSP_StdPeriph_Lib_V1.6.1
-#STM_DIR=../../STM32F4-Discovery_FW_V1.1.0
 
 # This is where the source files are located,
 # which are not in the current directory
@@ -41,13 +40,11 @@ SRCS  += stm32f4xx_usart.c
 # The assembly code in this file is the first one to be
 # executed. Normally you do not change this file.
 SRCS += $(STM_DIR)/Libraries/CMSIS/Device/ST/STM32F4xx/Source/Templates/TrueSTUDIO/startup_stm32f40_41xxx.s
-#SRCS += $(STM_DIR)/Libraries/CMSIS/ST/STM32F4xx/Source/Templates/TrueSTUDIO/startup_stm32f4xx.s
 
 # The header files we use are located here
 #INC_DIRS  = $(STM_DIR)/Utilities/STM32F4-Discovery
 INC_DIRS  = $(STM_DIR)/Libraries/CMSIS/Include
 INC_DIRS += $(STM_DIR)/Libraries/CMSIS/Device/ST/STM32F4xx/Include
-#INC_DIRS += $(STM_DIR)/Libraries/CMSIS/ST/STM32F4xx/Include
 INC_DIRS += $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/inc
 INC_DIRS += .
 
