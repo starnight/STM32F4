@@ -1,4 +1,4 @@
-This is a simple Timer example for STM32F407, especially for STM32F4-Discovery.
+This is a simple USART example for STM32F407, especially for STM32F4-Discovery.
 It will flash the LEDs and turn the LEDs on / off periodically in order with the
 Timer.  It will also print Hello world string through USART6.
 
