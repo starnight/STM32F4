@@ -1,5 +1,5 @@
 # Name of the binaries.
-PROJ_NAME=GPIO-std
+PROJ_NAME=PWM-std
 
 ######################################################################
 #                         SETUP SOURCES                              #
