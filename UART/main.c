@@ -257,6 +257,7 @@ int main(void) {
     /* Setup timer to time. */
     setup_timer();
 
+    /* Setup usart. */
 	setup_usart();
 
     /* Wellcome LEDs. */
