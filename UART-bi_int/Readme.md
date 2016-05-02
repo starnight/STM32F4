@@ -1,6 +1,6 @@
 This is a simple USART with interrupts example for STM32F407, especially for STM32F4-Discovery.
 It will flash the LEDs and turn the LEDs on / off periodically in order with the
-Timer.  It will also print Hello world string and get message through/from USART6.
+Timer.  It will also print Hello world string and get message through/from USART6 with interrupts.
 
 ### Tools and software requirements ###
 
