@@ -348,12 +348,14 @@ void GetResponseSendData1(void *pBuf) {
 				/* Read end. */
 				USART_rIdx = idx;
 				PopInRing();
-				r_state = RES_SENDDATA2;
-				pPar = NULL;
+				if(sTask != NULL) {
+					/* Resume suspended task if needed. */
+					vTaskResume(sTask);
+					sTask = NULL;
+				}
+				pr_state = UNKNOW;
 			}
-			else {
-				Clear2Unknow();
-			}
+			Clear2Unknow();
 			break;
 		}
 	}
@@ -588,10 +590,33 @@ SOCKET AcceptTcpSocket(void) {
 		return -1;
 }
 
+ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
+	uint16_t id = Sock2ID(s);
+	ssize_t i = -1;
+	char send_header[] = "AT+CIPSEND=0,2048\r\n";
+
+	snprintf(send_header, strlen(send_header), "AT+CIPSEND=%d,%4d\r\n", id, len);
+
+	while(pr_state != UNKNOW);
+	USART_Send(USART6, send_header, strlen(send_header), NON_BLOCKING);
+	pr_state = RES_SENDDATA1;
+	sTask = task;
+	vTaskSuspend(NULL);
+
+	while(pr_state != UNKNOW);
+	USART_Send(USART6, buf, len, NON_BLOCKING);
+	pr_state = RES_SENDDATA2;
+	sTask = task;
+	vTaskSuspend(NULL);
+
+	return len;
+}
+
+ssize_t RecvSocket(int __fd, void *__buf, size_t __n, int __flags) {}
+
 int ShutdownSocket(SOCKET s, int how) {
 	char sd_sock[] = "AT+CIPCLOSE=0\r\n";
 	uint16_t id = Sock2ID(s);
-	uint16_t l = strlen(sd_sock);
 
 	/* ID will be 0~4 in this practice.
 	 * Should use itoa liked function to asign ID string in real world.
@@ -599,8 +624,10 @@ int ShutdownSocket(SOCKET s, int how) {
 	sd_sock[12] = id + '0';
 
 	while(pr_state != UNKNOW);
-	USART_Send(USART6, mul_con, strlen(mul_con), NON_BLOCKING);
+	USART_Send(USART6, sd_sock, strlen(sd_sock), NON_BLOCKING);
 	pr_state = RES_CLOSESOCKET;
 	stask = xTaskGetCurrentTaskHandle();
 	vTaskSuspend(NULL);
+
+	return 0;
 }
