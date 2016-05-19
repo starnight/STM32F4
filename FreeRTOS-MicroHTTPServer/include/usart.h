@@ -25,10 +25,10 @@ ssize_t USART_Send(USART_TypeDef *, void *, ssize_t, uint8_t);
 void USART_Printf(USART_TypeDef* USARTx, char *str);
 
 /* On USART receive callback function type. */
-void (*CALLBACK)(void *);
-typedef CALLBACK USART_CALLBACK;
+typedef void (*USART_CALLBACK)(void *);
+//typedef CALLBACK USART_CALLBACK;
 
 /* Regist on USART6 receive callback function. */
-void RegistUSART6OnReceive(USART_CALLBACK cb, void *pa)
+void RegistUSART6OnReceive(USART_CALLBACK cb, void *pa);
 
 #endif
