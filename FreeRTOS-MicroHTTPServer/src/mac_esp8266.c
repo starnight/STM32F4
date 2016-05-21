@@ -27,10 +27,11 @@ QueueHandle_t new_connects;
 #define ID2Sock(id)	((SOCKET)(id + SOCKET_BASE))
 #define Sock2ID(s)	(s - SOCKET_BASE)
 
-#define IsSocketWriteable(s) ( \
-	(((s)->ovr == 0) && ((s)->wIdx < MAX_SOCKETBUFLEN)) || \
-	? 1 : 0 \
-	)
+#define IsSocketReadable(s) (( \
+	(((s)->ovr == 0) && ((s)->rIdx < (s)->wIdx)) || \
+	(((s)->ovr == 1) && ((s)->rIdx < MAX_SOCKETBUFLEN)) || \
+	(((s)->ovr == 1) && ((s)->rIdx < ((s)->wIdx + MAX_SOCKETBUFLEN))) \
+	) ? 1 : 0)
 
 #define USART_READBUFLEN	64
 
@@ -38,8 +39,6 @@ static USART_rBuf[USART_READBUFLEN];
 static uint16_t USART_rIdx = 0;
 static uint16_t USART_wIdx = 0;
 static uint8_t USART_ovr = 0;
-
-static char res_end[] = "\r\nOK\r\n";
 
 #define UNKNOW			0
 #define CONNECTED		1
@@ -113,6 +112,7 @@ void Clear2Unknow(void) {
 int8_t CheckHealth(void) {
 	char c[] = "AT\r\n";
 
+	while(pr_state != UNKNOW);
 	USART_Send(USART6, c, strlen(c), NON_BLOCKING);
 	pr_state = RES_DATA;
 	sTask = xTaskGetCurrentTaskHandle();
@@ -224,7 +224,7 @@ void GetRequestHeader(void *pBuf) {
 					/* It is not connect header. */
 					Clear2Unknow();
 					break;
-				}	
+				}
 			}
 			else {
 				/* ID */
@@ -508,19 +508,12 @@ void GetClosedHeader(void *pBuf) {
 	}
 }
 
-//void UnPackFrame(uint8_t *pBuf) {
-//	if((r_state == RES_INITIAL) && (USART_wIdx > strlen(req_start)))
-//		r_state = REQ_INITIAL;
-//	r_event[rstate](pBuf);
-//}
-
 void OnUSARTReceive(USART_TypeDef *usart) {
 	uint8_t f = 0;
 
 	if((USART_ovr == 0)
-		&& (USART_wIdx < USART_READBUFLEN)
-		&& (USART_rIdx <= USART_wIdx)) {
-		f = 1;	
+		&& (USART_wIdx < USART_READBUFLEN)) {
+		f = 1;
 	}
 	else if((USART_ovr == 0)
 		&& (USART_wIdx >= USART_READBUFLEN)
@@ -539,6 +532,23 @@ void OnUSARTReceive(USART_TypeDef *usart) {
 		USART_wIdx++;
 		/* Go to the parsing function according to USART read state machine. */
 		//r_event[r_state](NULL);
+		if(eTaskGetState(xESP8266RHandle) == eSuspended) {
+			vTaskResume(xESP8266RHandle);
+		}
+	}
+}
+
+TaskHandle_t xESP8266RHandle;
+
+/* ESP8266 UART receive task. */
+void vESP8266RTask(void *__p) {
+	while(true) {
+		if(IsUSARTReadable(0)) {
+			r_event[r_state](pPar);
+		}
+		else {
+			vTaskSuspend(NULL);
+		}
 	}
 }
 
@@ -557,6 +567,8 @@ void InitESP8266(void) {
 	pr_state = UNKNOW;
 	pPar = NULL;
 	new_connects == NULL;
+
+	xTaskCreate(vESP8266Task, "ESP8266 Driver", STACK_SIZE, NULL, tskIDLE_PRIORITY, &xESP8266RHandle);
 }
 
 void BindTcpSocket(uint16_t port) {
@@ -595,7 +607,7 @@ ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 	ssize_t i = -1;
 	char send_header[] = "AT+CIPSEND=0,2048\r\n";
 
-	snprintf(send_header, strlen(send_header), "AT+CIPSEND=%d,%4d\r\n", id, len);
+	snprintf(send_header, strlen(send_header), "AT+CIPSEND=%d,%d\r\n", id, len);
 
 	while(pr_state != UNKNOW);
 	USART_Send(USART6, send_header, strlen(send_header), NON_BLOCKING);
@@ -612,7 +624,35 @@ ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 	return len;
 }
 
-ssize_t RecvSocket(int __fd, void *__buf, size_t __n, int __flags) {}
+ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
+	uint16_t id = Sock2ID(s);
+	uint16_t rlen;
+	uint16_t idx;
+	uint8_t *pBuf;
+
+	pBuf = buf;
+
+	for(rlen=0; (rlen<len) && IsSocketReadable(clisock + id); rlen++) {
+		if((clisock[id].ovr == 0) &&
+			(clisock[id].rIdx < clisock[id].wIdx)) {
+			pBuf[rlen] = clisock[id].rbuf[clisock[id].rIdx];
+			clisock[id].rIdx++;
+		}
+		else if((clisock[id].ovr == 1) &&
+				(clisock[id].rIdx < MAX_SOCKETBUFLEN)) {
+			pBuf[rlen] = clisock[id].rbuf[clisock[id].rIdx];
+			clisock[id].rIdx++;
+		}
+		else if((clisock[id].ovr == 1) &&
+				(clisock[id].rIdx < clisock[id].wIdx + MAX_SOCKETBUFLEN)) {
+			clisock[id].rIdx = 0;
+			clisock[id].ovr = 0;
+			pBuf[rlen] = clisock[id].rbuf[clisock[id].rIdx];
+		}
+	}
+
+	return rlen;
+}
 
 int ShutdownSocket(SOCKET s, int how) {
 	char sd_sock[] = "AT+CIPCLOSE=0\r\n";

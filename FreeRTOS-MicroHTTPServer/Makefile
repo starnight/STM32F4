@@ -92,7 +92,7 @@ GDB     = arm-none-eabi-gdb
 INCLUDE = $(addprefix -I,$(INC_DIRS))
 
 # #defines needed when working with the STM library
-DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DINCLUDE_xTaskGetCurrentTaskHandle=1
+DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DINCLUDE_xTaskGetCurrentTaskHandle=1 -DINCLUDE_eTaskGetState = 1
 # if you use the following option, you must implement the function 
 #    assert_failed(uint8_t* file, uint32_t line)
 # because it is conditionally used in the library
