@@ -2,6 +2,7 @@
 
 # Object files
 *.o
+tags
 
 # Libraries
 *.lib

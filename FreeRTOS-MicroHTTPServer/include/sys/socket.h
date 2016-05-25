@@ -244,4 +244,6 @@ int accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addr_len);
    Returns 0 on success, -1 for errors.  */
 int shutdown (int __fd, int __how);
 
+#define close(s)	(shutdown(s, SHUT_RDWR))
+
 #endif

@@ -2,8 +2,11 @@
 #include "usart.h"
 #include "bits/socket.h"
 #include "sys/socket.h"
+#include "bits/mac_esp8266.h"
 
+#ifndef MAX_NUM_SOCKET
 #define MAX_NUM_SOCKET 64
+#endif
 
 uint64_t sock_slot = 0;
 
@@ -23,13 +26,16 @@ int socket (int __domain, int __type, int __protocol) {
 	int i = -1;
 	
 	if(__domain == AF_INET && __type == SOCK_STREAM && __protocol == 0) {
-		for(i=0; i<MAX_NUM_SOCKET; i++) {
+		/*
+  		for(i=0; i<MAX_NUM_SOCKET; i++) {
 			if((sock_slot & (1 << i)) == 0) {
 				sock_slot |= (1 << i);
 				i += SOCKET_BASE;
 				break;
 			}
 		}
+		*/
+		i = HaveTcpServerSocket();
 	}
 
 	return i;
@@ -37,39 +43,19 @@ int socket (int __domain, int __type, int __protocol) {
 
 /* Give the socket FD the local address ADDR (which is LEN bytes long).  */
 int bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len) {
-	/*
-	char mul_con[] = "AT+CIPMUX=1\r\n";
-	char as_server[] = "AT+CIPSERVER=1,8001\r\n";
+	struct sockaddr_in *s_addr;
 
-	USART_Send(USART6, mul_con, strlen(mul_con), BLOCKING);
-	// To do: Check OK
-	
-	USART_Send(USART6, as_server, strlen(as_server), BLOCKING);
-	// To do: Check OK
-	*/
+	s_addr = (struct sockaddr_in *)addr;
+	BindTcpSocket(s_addr.sin_port);
+
 	return 0;
-}
-
-/* Send N bytes of BUF to socket FD.  Returns the number sent or -1.  */
-ssize_t send (int __fd, __const void *__buf, size_t __n, int __flags) {
-}
-
-/* Read N bytes into BUF from socket FD.
-   Returns the number read or -1 for errors.  */
-ssize_t recv (int __fd, void *__buf, size_t __n, int __flags) {
-}
-
-/* Set socket FD's option OPTNAME at protocol level LEVEL
-   to *OPTVAL (which is OPTLEN bytes long).
-   Returns 0 on success, -1 for errors.  */
-int setsockopt (int __fd, int __level, int __optname,
-		       const void *__optval, socklen_t __optlen) {
 }
 
 /* Prepare to accept connections on socket FD.
    N connection requests will be queued before further requests are refused.
    Returns 0 on success, -1 for errors.  */
 int listen (int __fd, int __n) {
+	return 0;
 }
 
 /* Await a connection on socket FD.
@@ -78,6 +64,26 @@ int listen (int __fd, int __n) {
    peer and *ADDR_LEN to the address's actual length, and return the
    new socket's descriptor, or -1 for errors.  */
 int accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addr_len) {
+	return AcceptTcpSocket();
+}
+
+/* Send N bytes of BUF to socket FD.  Returns the number sent or -1.  */
+ssize_t send (int __fd, __const void *__buf, size_t __n, int __flags) {
+	return SendSocket(__fd, __buf, __n, __flags);
+}
+
+/* Read N bytes into BUF from socket FD.
+   Returns the number read or -1 for errors.  */
+ssize_t recv (int __fd, void *__buf, size_t __n, int __flags) {
+	return RecvSocket(__fd, __buf, __n, __flags);
+}
+
+/* Set socket FD's option OPTNAME at protocol level LEVEL
+   to *OPTVAL (which is OPTLEN bytes long).
+   Returns 0 on success, -1 for errors.  */
+int setsockopt (int __fd, int __level, int __optname,
+		       const void *__optval, socklen_t __optlen) {
+	return 0;
 }
 
 /* Shut down all or part of the connection open on socket FD.
@@ -87,5 +93,5 @@ int accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addr_len) {
      SHUT_RDWR = No more receptions or transmissions.
    Returns 0 on success, -1 for errors.  */
 int shutdown (int __fd, int __how) {
+	return ShutdownSocket(__fd, __how);
 }
-

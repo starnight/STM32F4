@@ -12,6 +12,8 @@
 #define CLR_BIT(r, b)	((r) &= ~(1 << (b)))
 #define ISBIT_SET(r, b)	(((r) & (1 << (b))) > 0)
 
+#define MAX_CLIENT 			5
+
 void InitESP8266(void);
 void BindTcpSocket(uint16_t port);
 SOCKET AcceptTcpSocket(void);

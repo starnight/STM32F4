@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include "bits/socket.h"
 #include "bits/mac_esp8266.h"
 #include "usart.h"
@@ -14,14 +15,14 @@ typedef struct _sock_struct {
 	uint32_t peer_ip; /* Peer IP address. */
 	uint16_t peer_port; /* Peer port. */
 	uint16_t fd; /* File descriptor of the socket. */
-	uint16_t rlen; /* Length of the payload comes form peer. */
+	uint16_t slen; /* Length of the payload going to be sent to peer. */
+	uint16_t rlen; /* Length of the payload coming form peer. */
 	uint16_t rIdx, wIdx; /* Read and write index of socket read buffer. */
+	uint8_t *sbuf; /* Points to the buffer going to be sent. */
 	uint8_t rbuf[MAX_SOCKETBUFLEN]; /* Socket read buffer. */
 	uint8_t ovr; /* Is the socket read buffer overflow or not. */
 	uint8_t state; /* Socket status. */
 } _sock;
-
-#define MAX_CLIENT 			5
 
 static _sock clisock[MAX_CLIENT];
 static _sock svrsock;
@@ -203,7 +204,7 @@ void GetConnentedHeader(void *pBuf) {
 				clisock[id].wIdx = 0;
 				clisock[id].ovr = 0;
 				clisock[id].state = 0;
-				SET_BIT(clisock[id].state, SOCKET_USING);
+				//SET_BIT(clisock[id].state, SOCKET_USING);
 			}
 			Clear2Unknow();
 			break;
@@ -521,6 +522,7 @@ void GetClosedHeader(void *pBuf) {
 
 void OnUSARTReceive(USART_TypeDef *usart) {
 	uint8_t f = 0;
+	BaseType_t xYieldRequired;
 
 	if((USART_ovr == 0)
 		&& (USART_wIdx < USART_READBUFLEN)) {
@@ -543,7 +545,10 @@ void OnUSARTReceive(USART_TypeDef *usart) {
 		USART_wIdx++;
 		/* Make sure the ESP8266 receive from USART hadler is working. */
 		if(eTaskGetState(xESP8266RHandle) == eSuspended) {
-			vTaskResume(xESP8266RHandle);
+			xYieldRequired = vTaskResume(xESP8266RHandle);
+			if( xYieldRequired == pdTRUE ) {
+				portYIELD_FROM_ISR();
+			}
 		}
 	}
 }
@@ -642,42 +647,63 @@ SOCKET AcceptTcpSocket(void) {
 	}
 }
 
+void vSendSocketTask(void *__p) {
+	SOCKET *ps;
+	TaskHandle_t task;
+	uint16_t id;
+	char send_header[22]; /* "AT+CIPSEND=id,len\r\n" */
+
+	ps = (SOCKET *)__p;
+	id = Sock2ID(*ps);
+	snprintf(send_header,
+				strlen(send_header),
+				"AT+CIPSEND=%d,%d\r\n",
+				id,
+				clisock[id].slen);
+	task = xTaskGetCurrentTaskHandle();
+
+	/* Send socket send command. */
+	while(pr_state != UNKNOW); /* Block to wait USART send finished. */
+	pr_state = RES_SENDDATA1;
+	USART_Send(USART6, send_header, strlen(send_header), NON_BLOCKING);
+	sTask = task;
+	vTaskSuspend(NULL);
+
+	/* Send socket payload. */
+	while(pr_state != UNKNOW); /* Block to wait USART send finished. */
+	pr_state = RES_SENDDATA2;
+	USART_Send(USART6, clisock[id].sbuf, clisock[id].slen, NON_BLOCKING);
+	sTask = task;
+	vTaskSuspend(NULL);
+
+	/* Finish writing and clear the socket is writing now. */
+	CLR_BIT(clisock[id].state, SOCKET_WRITING);
+	/* Delete send socket task after it is finished. */
+	vTaskDelete(NULL);
+}
+
 ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 	uint16_t id = Sock2ID(s);
-	ssize_t i = -1;
-	char send_header[] = "AT+CIPSEND=0,2048\r\n";
+	BaseType_t xReturned;
 
 	if(!ISBIT_SET(clisock[id].state, SOCKET_WRITING)) {
 		/* The socket is writeable. */
 		/* Set the socket is busy in writing now. */
 		SET_BIT(clisock[id].state, SOCKET_WRITING);
-		snprintf(send_header,
-					strlen(send_header),
-					"AT+CIPSEND=%d,%d\r\n",
-					id,
-					len);
-
-		while(pr_state != UNKNOW); /* Block to wait USART send finished. */
-		pr_state = RES_SENDDATA1;
-		USART_Send(USART6, send_header, strlen(send_header), NON_BLOCKING);
-		sTask = task;
-		vTaskSuspend(NULL);
-
-		while(pr_state != UNKNOW); /* Block to wait USART send finished. */
-		pr_state = RES_SENDDATA2;
-		USART_Send(USART6, buf, len, NON_BLOCKING);
-		sTask = task;
-		vTaskSuspend(NULL);
-
-		/* Finish writing and clear the socket is writing now. */
-		CLR_BIT(clisock[id].state, SOCKET_WRITING);
-
-		return len;
+		clisock[id].sbuf = buf;
+		clisock[id].slen = len;
+		xReturned = xTaskCreate(vSendSocketTask,
+								"Socket Send Task",
+								128,
+								&s,
+								tskIDLE_PRIORITY,
+								NULL);
 	}
 	else {
 		/* The socket is busy in writing now. */
-		return -1;
 	}
+
+	return -1;
 }
 
 ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
@@ -716,14 +742,18 @@ ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
 	return rlen;
 }
 
-int ShutdownSocket(SOCKET s, int how) {
-	char sd_sock[] = "AT+CIPCLOSE=0\r\n";
-	uint16_t id = Sock2ID(s);
+void vCloseSocketTask(void *__p) {
+	SOCKET *ps;
+	uint16_t id;
+	char sd_sock[18]; /* Going to be "AT+CIPCLOSE=id\r\n" */
+
+	ps = (SOCKET *)__p;
+	id = Sock2ID(*ps);
 
 	/* ID will be 0~4 in this practice.
 	 * Should use itoa liked function to asign ID string in real world.
 	 */
-	sd_sock[12] = id + '0';
+	snprintf(sd_sock, sizeof(sd_sock), "AT+CIPCLOSE=%d\r\n", id);
 
 	while(pr_state != UNKNOW); /* Block to wait USART send finished. */
 	pr_state = RES_CLOSESOCKET;
@@ -732,6 +762,23 @@ int ShutdownSocket(SOCKET s, int how) {
 	vTaskSuspend(NULL);
 
 	clisock[id].state = 0;
+
+	/* Delete close socket task after the socket is closed. */
+	vTaskDelete(NULL);
+}
+
+int ShutdownSocket(SOCKET s, int how) {
+	uint16_t id = Sock2ID(s);
+	BaseType_t xReturned;
+
+	if(ISBIT_SET(clisock[id].state, SOCKET_USING)) {
+		xReturned = xTaskCreate(vCloseSocketTask,
+								"Close Socket Task",
+								128,
+								&s,
+								tskIDLE_PRIORITY,
+								NULL);
+	}
 
 	return 0;
 }
