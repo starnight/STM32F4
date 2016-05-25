@@ -2,6 +2,8 @@
 #define __SELECT_H__
 
 #include <stdint.h>
+#include <sys/types.h>
+#include "bits/socket.h"
 
 struct timeval {
 	long tv_sec;	/* second */
@@ -15,7 +17,7 @@ typedef uint64_t fd_set;
 #define FD_CLR(__fd, __pset)	(*(__pset) &= ~(fd_set)(1 << __fd))
 #define FD_ISSET(__fd, __pset)	((*(__pset) & (fd_set)(1 << __fd)) > 0)
 
-int select(int nfds, fd_set *__readfds, fd_set *__writefds,
+int select(SOCKET nfds, fd_set *__readfds, fd_set *__writefds,
 			fd_set *__exceptfds, struct timeval *__timeout);
 
 #endif

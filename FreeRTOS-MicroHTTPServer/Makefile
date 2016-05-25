@@ -33,6 +33,8 @@ vpath %.c $(STM_SRC)
 SRCS   = src/main.c
 SRCS  += src/usart.c
 SRCS  += src/socket.c
+SRCS  += src/select.c
+SRCS  += src/mac_esp8266.c
 SRCS  += lib/server.c
 
 # Contains initialisation code and must be compiled into
@@ -92,7 +94,7 @@ GDB     = arm-none-eabi-gdb
 INCLUDE = $(addprefix -I,$(INC_DIRS))
 
 # #defines needed when working with the STM library
-DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DINCLUDE_xTaskGetCurrentTaskHandle=1 -DINCLUDE_eTaskGetState = 1
+DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DINCLUDE_xTaskGetCurrentTaskHandle=1 -DINCLUDE_eTaskGetState=1
 # if you use the following option, you must implement the function 
 #    assert_failed(uint8_t* file, uint32_t line)
 # because it is conditionally used in the library

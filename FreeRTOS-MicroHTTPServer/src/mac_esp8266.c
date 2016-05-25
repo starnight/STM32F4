@@ -3,6 +3,7 @@
 #include "bits/socket.h"
 #include "bits/mac_esp8266.h"
 #include "usart.h"
+#include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
 
@@ -24,8 +25,8 @@ typedef struct _sock_struct {
 	uint8_t state; /* Socket status. */
 } _sock;
 
-static _sock clisock[MAX_CLIENT];
-static _sock svrsock;
+_sock clisock[MAX_CLIENT];
+_sock svrsock;
 
 /* Set server socket's ID being last socket ID. */
 #define SERVER_SOCKET_ID	MAX_CLIENT
@@ -45,10 +46,10 @@ QueueHandle_t new_connects;
 
 #define USART_READBUFLEN	64
 
-static USART_rBuf[USART_READBUFLEN];
-static uint16_t USART_rIdx = 0;
-static uint16_t USART_wIdx = 0;
-static uint8_t USART_ovr = 0;
+uint8_t USART_rBuf[USART_READBUFLEN];
+uint16_t USART_rIdx = 0;
+uint16_t USART_wIdx = 0;
+uint8_t USART_ovr = 0;
 
 #define UNKNOW			0
 #define CONNECTED		1
@@ -63,11 +64,13 @@ static uint8_t USART_ovr = 0;
 #define REQ_END			10
 #define CLOSED			11
 
-static uint8_t r_state;
-static uint8_t pr_state;
-static CALLBACK r_event[12];
-static void *pPar;
-static void *psPar;
+/* On USART receive callback function type. */
+typedef void (*CALLBACK)(void *);
+
+uint8_t r_state;
+uint8_t pr_state;
+CALLBACK r_event[12];
+void *pPar;
 
 #define CONNECT_MAX_NUM_SPLITER 1
 #define IPD_MAX_NUM_SPLITER	3	
@@ -172,9 +175,10 @@ void GetConnentedHeader(void *pBuf) {
 	uint16_t r_len;
 	uint16_t idx;
 	uint16_t id = 0;
+	SOCKET s;
 	char con_str[] = "CONNECT\r\n";
 	uint8_t num_spliter = 0;
-	uint16_t l = strlen(cls_str);
+	uint16_t l = strlen(con_str);
 
 	for(r_len=0; (r_state == CONNECTED) && IsUSARTReadable(r_len); r_len++) {
 		idx = (USART_rIdx + USART_READBUFLEN + r_len) % USART_READBUFLEN;
@@ -195,8 +199,9 @@ void GetConnentedHeader(void *pBuf) {
 				USART_rIdx = idx;
 				PopInRing();
 				/* Notify os server socket connected. */
-				xQueueSend(new_connects, &(ID2Sock(id)), 0);
-				SET_BIT(svrsock.state, SOCKET_READABLE);
+				s = ID2Sock(id);
+				xQueueSend(new_connects, &s, 0);
+				_SET_BIT(svrsock.state, SOCKET_READABLE);
 				/* Clear state of the client sock. */
 				clisock[id].fd = ID2Sock(id);
 				clisock[id].rlen = 0;
@@ -204,7 +209,7 @@ void GetConnentedHeader(void *pBuf) {
 				clisock[id].wIdx = 0;
 				clisock[id].ovr = 0;
 				clisock[id].state = 0;
-				//SET_BIT(clisock[id].state, SOCKET_USING);
+				//_SET_BIT(clisock[id].state, SOCKET_USING);
 			}
 			Clear2Unknow();
 			break;
@@ -219,6 +224,7 @@ void GetRequestHeader(void *pBuf) {
 	uint16_t len = 0;
 	char req_start[] = "\r\n+IPD,";
 	uint8_t l = strlen(req_start);
+	uint8_t num_spliter = 0;
 
 	for(r_len=0; (r_state == REQ_INITIAL) && IsUSARTReadable(r_len); r_len++) {
 		idx = (USART_rIdx + USART_READBUFLEN + r_len) % USART_READBUFLEN; 
@@ -291,7 +297,7 @@ void GetRequestData(void *pBuf) {
 				PopInRing();
 				s->wIdx++;
 				/* Notify os client socket has something to be read. */
-				SET_BIT(s->state, SOCKET_READABLE);
+				_SET_BIT(s->state, SOCKET_READABLE);
 			}
 		}
 		else {
@@ -353,7 +359,7 @@ void GetResponseSendData1(void *pBuf) {
 	uint16_t r_len;
 	uint16_t idx;
 	char send1_str[] = "\r\nOK\r\n>";
-	uint16_t l = strlen(end_str);
+	uint16_t l = strlen(send1_str);
 
 	for(r_len=0; (r_state == RES_SENDDATA1) && IsUSARTReadable(r_len); r_len++) {
 		idx = (USART_rIdx + USART_READBUFLEN + r_len) % USART_READBUFLEN;
@@ -444,7 +450,7 @@ void GetResponseCloseSocket(void *pBuf) {
 				//(USART_rBuf[idx - 1] == '\r') &&
 				(USART_rBuf[idx] == '\n')) {
 			/* Parse close message if message is completed. */
-			if(CmpInRing(USART_rIdx+r_len-l+1, con_str, l - 1)) {
+			if(CmpInRing(USART_rIdx+r_len-l+1, cls_str, l - 1)) {
 				USART_rIdx = idx;
 				PopInRing();
 				r_state = RES_END;
@@ -508,7 +514,7 @@ void GetClosedHeader(void *pBuf) {
 				//(USART_rBuf[idx - 1] == '\r') &&
 				(USART_rBuf[idx] == '\n')) {
 			/* Parse close message if message is completed. */
-			if(CmpInRing(USART_rIdx+r_len-l+1, con_str, l - 1)) {
+			if(CmpInRing(USART_rIdx+r_len-l+1, cls_str, l - 1)) {
 				USART_rIdx = idx;
 				PopInRing();
 				// To do: Notify os socket closed.
@@ -544,9 +550,9 @@ void OnUSARTReceive(USART_TypeDef *usart) {
 		USART_rBuf[USART_wIdx] = USART_ReadByte(usart);
 		USART_wIdx++;
 		/* Make sure the ESP8266 receive from USART hadler is working. */
-		if(eTaskGetState(xESP8266RHandle) == eSuspended) {
-			xYieldRequired = vTaskResume(xESP8266RHandle);
-			if( xYieldRequired == pdTRUE ) {
+		if(eTaskGetState(rTask) == eSuspended) {
+			xYieldRequired = xTaskResumeFromISR(rTask);
+			if(xYieldRequired == pdTRUE) {
 				portYIELD_FROM_ISR();
 			}
 		}
@@ -555,7 +561,7 @@ void OnUSARTReceive(USART_TypeDef *usart) {
 
 /* ESP8266 UART receive task. */
 void vESP8266RTask(void *__p) {
-	while(true) {
+	while(1) {
 		if(IsUSARTReadable(0)) {
 			r_event[r_state](pPar);
 		}
@@ -593,11 +599,11 @@ void InitESP8266(void) {
 }
 
 SOCKET HaveTcpServerSocket(void) {
-	if(!ISBIT_SET(svrsock.state, SOCKET_USING)) {
+	if(!_ISBIT_SET(svrsock.state, SOCKET_USING)) {
 		/* First time to have server socket.
 		 * There is only one server socket should be. */
 		svrsock.fd = ID2Sock(SERVER_SOCKET_ID);
-		SET_BIT(svrsock.state, SOCKET_USING);
+		_SET_BIT(svrsock.state, SOCKET_USING);
 		return svrsock.fd;
 	}
 	else {
@@ -633,12 +639,12 @@ SOCKET AcceptTcpSocket(void) {
 
 	if(xQueueReceive(new_connects, &s, 0) == pdTRUE) {
 		clisock[Sock2ID(s)].state = 0;
-		SET_BIT(clisock[Sock2ID(s)].state, SOCKET_USING);
+		_SET_BIT(clisock[Sock2ID(s)].state, SOCKET_USING);
 		
 		if(uxQueueMessagesWaiting(new_connects) > 0)
-			SET_BIT(svrsock.state, SOCKET_READABLE);
+			_SET_BIT(svrsock.state, SOCKET_READABLE);
 		else
-			CLR_BIT(svrsock.state, SOCKET_READABLE);
+			_CLR_BIT(svrsock.state, SOCKET_READABLE);
 
 		return s;
 	}
@@ -677,7 +683,7 @@ void vSendSocketTask(void *__p) {
 	vTaskSuspend(NULL);
 
 	/* Finish writing and clear the socket is writing now. */
-	CLR_BIT(clisock[id].state, SOCKET_WRITING);
+	_CLR_BIT(clisock[id].state, SOCKET_WRITING);
 	/* Delete send socket task after it is finished. */
 	vTaskDelete(NULL);
 }
@@ -686,10 +692,10 @@ ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 	uint16_t id = Sock2ID(s);
 	BaseType_t xReturned;
 
-	if(!ISBIT_SET(clisock[id].state, SOCKET_WRITING)) {
+	if(!_ISBIT_SET(clisock[id].state, SOCKET_WRITING)) {
 		/* The socket is writeable. */
 		/* Set the socket is busy in writing now. */
-		SET_BIT(clisock[id].state, SOCKET_WRITING);
+		_SET_BIT(clisock[id].state, SOCKET_WRITING);
 		clisock[id].sbuf = buf;
 		clisock[id].slen = len;
 		xReturned = xTaskCreate(vSendSocketTask,
@@ -735,9 +741,9 @@ ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
 
 	/* Check there are still more bytes to be read. */
 	if(IsSocketReadable(clisock + id))
-		SET_BIT(clisock[id].state, SOCKET_READABLE);
+		_SET_BIT(clisock[id].state, SOCKET_READABLE);
 	else
-		CLR_BIT(clisock[id].state, SOCKET_READABLE);
+		_CLR_BIT(clisock[id].state, SOCKET_READABLE);
 
 	return rlen;
 }
@@ -758,7 +764,7 @@ void vCloseSocketTask(void *__p) {
 	while(pr_state != UNKNOW); /* Block to wait USART send finished. */
 	pr_state = RES_CLOSESOCKET;
 	USART_Send(USART6, sd_sock, strlen(sd_sock), NON_BLOCKING);
-	stask = xTaskGetCurrentTaskHandle();
+	sTask = xTaskGetCurrentTaskHandle();
 	vTaskSuspend(NULL);
 
 	clisock[id].state = 0;
@@ -771,7 +777,7 @@ int ShutdownSocket(SOCKET s, int how) {
 	uint16_t id = Sock2ID(s);
 	BaseType_t xReturned;
 
-	if(ISBIT_SET(clisock[id].state, SOCKET_USING)) {
+	if(_ISBIT_SET(clisock[id].state, SOCKET_USING)) {
 		xReturned = xTaskCreate(vCloseSocketTask,
 								"Close Socket Task",
 								128,
@@ -781,4 +787,24 @@ int ShutdownSocket(SOCKET s, int how) {
 	}
 
 	return 0;
+}
+
+int IsSocketReady2Read(SOCKET s) {
+	uint16_t id = Sock2ID(s);
+	uint8_t mask = (1 << SOCKET_USING) | (1 << SOCKET_READABLE);
+
+	if((0 <= id) && (id < MAX_CLIENT))
+		return (clisock[id].state & mask) > 0;
+	else
+		return 0;
+}
+
+int IsSocketReady2Write(SOCKET s) {
+	uint16_t id = Sock2ID(s);
+	uint8_t mask = (1 << SOCKET_USING) | (1 << SOCKET_WRITING);
+
+	if((0 <= id) && (id < MAX_CLIENT))
+		return (clisock[id].state & mask) == (1 << SOCKET_USING);
+	else
+		return 0;
 }

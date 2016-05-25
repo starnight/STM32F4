@@ -2,7 +2,8 @@
 #define __SOCKET_H__
 
 #include <stdint.h>
-#include <sys/select.h>
+#include <sys/types.h>
+#include <bits/socket.h>
 #include "usart.h"
 
 typedef uint32_t __socklen_t;
