@@ -11,7 +11,7 @@ typedef uint32_t __socklen_t;
 /* Type for length arguments in socket calls.  */
 #ifndef __socklen_t_defined
 typedef __socklen_t socklen_t;
-# define __socklen_t_defined
+#define __socklen_t_defined
 #endif
 
 /* Types of sockets.  */
@@ -194,9 +194,9 @@ enum {
 enum {
 	SHUT_RD = 0,	/* No more receptions.  */
 #define SHUT_RD		SHUT_RD
-	SHUT_WR,		/* No more transmissions.  */
+	SHUT_WR = 1,	/* No more transmissions.  */
 #define SHUT_WR		SHUT_WR
-	SHUT_RDWR		/* No more receptions or transmissions.  */
+	SHUT_RDWR = 2	/* No more receptions or transmissions.  */
 #define SHUT_RDWR	SHUT_RDWR
 };
 

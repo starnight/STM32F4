@@ -94,7 +94,7 @@ GDB     = arm-none-eabi-gdb
 INCLUDE = $(addprefix -I,$(INC_DIRS))
 
 # #defines needed when working with the STM library
-DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DINCLUDE_xTaskGetCurrentTaskHandle=1 -DINCLUDE_eTaskGetState=1
+DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx
 # if you use the following option, you must implement the function 
 #    assert_failed(uint8_t* file, uint32_t line)
 # because it is conditionally used in the library
@@ -103,8 +103,8 @@ DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx -DINCLUDE_xTaskGetCurrentTaskH
 ## Compiler options
 CFLAGS  = -ggdb
 # please do not optimize anything because we are debugging
-CFLAGS += -Os
-CFLAGS += -Wall -Wextra -Warray-bounds
+CFLAGS += -O0
+CFLAGS += -Wextra -Warray-bounds
 CFLAGS += -mlittle-endian -mthumb -mcpu=cortex-m4 -mthumb-interwork
 CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
 

@@ -526,9 +526,11 @@ void GetClosedHeader(void *pBuf) {
 	}
 }
 
-void OnUSARTReceive(USART_TypeDef *usart) {
+void OnUSARTReceive(void *pBuf) {
 	uint8_t f = 0;
-	BaseType_t xYieldRequired;
+	USART_TypeDef *usart;
+
+	usart = pBuf;
 
 	if((USART_ovr == 0)
 		&& (USART_wIdx < USART_READBUFLEN)) {
@@ -551,10 +553,7 @@ void OnUSARTReceive(USART_TypeDef *usart) {
 		USART_wIdx++;
 		/* Make sure the ESP8266 receive from USART hadler is working. */
 		if(eTaskGetState(rTask) == eSuspended) {
-			xYieldRequired = xTaskResumeFromISR(rTask);
-			if(xYieldRequired == pdTRUE) {
-				portYIELD_FROM_ISR();
-			}
+			xTaskResumeFromISR(rTask);
 		}
 	}
 }
@@ -592,7 +591,7 @@ void InitESP8266(void) {
 
 	xTaskCreate(vESP8266RTask,
 				"ESP8266 Driver UART receive",
-				STACK_SIZE,
+				128,
 				NULL,
 				tskIDLE_PRIORITY,
 				&rTask);
