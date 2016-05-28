@@ -8,6 +8,9 @@ typedef struct _STREAM {
 	size_t BufLen;
 } STREAM;
 
+/* Define the USART RX Queue for buffering. */
+QueueHandle_t rxQueue;
+
 static USART_CALLBACK OnUSART6Receive = NULL;
 static int *OnUSART6ReceivePA = NULL;
 
@@ -67,11 +70,13 @@ void setup_usart(void) {
 	/* Enable USART6. */
 	USART_Cmd(USART6, ENABLE);
 
-	/* Initial the USART streams. */
+	/* Initial the USART TX streams. */
 	for(usart_stream_idx = MAX_USART_STREAM;
 		usart_stream_idx > 0;
 		usart_stream_idx--)
 		ClearStream(usart_stream + usart_stream_idx - 1);
+	/* Initial the RX Queue. */
+	rxQueue = xQueueCreate(RX_QUUEUELEN, sizeof(uint8_t));
 
 	/* Enable USART6 RX interrupt. */
 	USART_ITConfig(USART6, USART_IT_RXNE, ENABLE);
@@ -123,6 +128,32 @@ void setup_usart2(void) {
 }
 #endif
 
+/* Read bytes array with designated length from RX Queue. */
+ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
+	ssize_t i = -1;
+	uint8_t *b;
+
+	b = buf;
+
+	if(USARTx == USART6) {
+		for(i=0; i<l; i++) {
+			if(!xQueueReceive(rxQueue, &(b+i), 0)) {
+				break;
+			}
+		}
+	}
+
+	return i;
+}
+
+/* Check USART RX buffer is readable. */
+int USART_Readable(USART_TypeDef *USARTx) {
+	if((USARTx == USART6) && (uxQueueMessagesWaiting(rxQueue)))
+		return true;
+	else
+		return false;
+}
+
 /* Send bytes array with designated length through USART. */
 ssize_t USART_Send(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 	ssize_t i = 0;
@@ -165,10 +196,14 @@ void USART_Printf(USART_TypeDef* USARTx, char *str) {
 /* USART6 IRQ handler. */
 void USART6_IRQHandler(void) {
 	uint8_t i;
+	uint8_t rxdata;
 
 	/* USART6 RX interrupt. */
 	if((USART6->SR & USART_SR_RXNE) && (OnUSART6Receive != NULL)) {
-		OnUSART6Receive(OnUSART6ReceivePA);	
+		//OnUSART6Receive(OnUSART6ReceivePA);
+		/* Push data into RX Queue. */
+		rxdata = USART_ReadByte(USART6);
+		xQueueSendToBackFromISR(rxQueue, &rxdata, NULL);
 	}
 
 	/* USART6 TX interrupt. */

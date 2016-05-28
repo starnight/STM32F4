@@ -13,6 +13,8 @@
 #define BLOCKING		0
 #define NON_BLOCKING	1
 
+#define RX_QUUEUELEN	64
+
 /* Initialize the USART6. */
 void setup_usart(void);
 #ifdef MIRRO_USART6
@@ -23,6 +25,10 @@ void setup_usart2(void);
 #define USART_ReadByte(USARTx)		(USART_ReceiveData(USARTx))
 /* USART send 1 byte. */
 #define USART_SendByte(USARTx, b)	(USART_SendData(USARTx, b))
+/* Read bytes array with designated length from RX Queue. */
+ssize_t USART_Read(USART_TypeDef *, void *, ssize_t, uint8_t);
+/* Check USART RX buffer is readable. */
+int USART_Readable(USART_TypeDef *);
 /* Send bytes array with designated length through USART. */
 ssize_t USART_Send(USART_TypeDef *, void *, ssize_t, uint8_t);
 /* Print the string through USART with blocking. */
