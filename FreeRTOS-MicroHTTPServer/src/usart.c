@@ -151,3 +151,8 @@ void USART6_IRQHandler(void) {
 		}
 	}
 }
+
+void RegistUSART6OnReceive(USART_CALLBACK cb, void *pa) {
+	OnUSART6Receive = cb;
+	OnUSART6ReceivePA = pa;
+}

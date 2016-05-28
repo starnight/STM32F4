@@ -52,17 +52,18 @@ uint16_t USART_wIdx = 0;
 uint8_t USART_ovr = 0;
 
 #define UNKNOW			0
-#define CONNECTED		1
-#define RES_INITIAL		2
-#define RES_DATA		3
-#define RES_SENDDATA1	4
-#define RES_SENDDATA2	5
-#define RES_CLOSESOCKET	6
-#define RES_END			7
-#define REQ_INITIAL		8
-#define REQ_DATA		9
-#define REQ_END			10
-#define CLOSED			11
+#define WIFICONNECTED	1
+#define CONNECTED		2
+#define RES_INITIAL		3
+#define RES_DATA		4
+#define RES_SENDDATA1	5
+#define RES_SENDDATA2	6
+#define RES_CLOSESOCKET	7
+#define RES_END			8
+#define REQ_INITIAL		9
+#define REQ_DATA		10
+#define REQ_END			11
+#define CLOSED			12
 
 /* On USART receive callback function type. */
 typedef void (*CALLBACK)(void *);
@@ -81,7 +82,7 @@ void *pPar;
 	((USART_ovr == 1) && ((USART_rIdx + ofs) < (USART_wIdx + USART_READBUFLEN))) \
 	) ? 1 : 0)
 
-inline void PopInRing(void) {
+void PopInRing(void) {
 	if((USART_ovr == 0) && (USART_rIdx < USART_wIdx)) {
 		USART_rIdx = (USART_rIdx + 1 + USART_READBUFLEN) % USART_READBUFLEN;
 	}
@@ -146,7 +147,14 @@ void GetUnknow(void *pBuf) {
 			/* Read byte is a splitting character. */
 			num_spliter++;
 		}
-		if(USART_rBuf[idx] == '+') {
+		if(USART_rBuf[idx] == 'W') {
+			/* This must be connected to wifi message. */
+			r_state = WIFICONNECTED;
+			pPar = NULL;
+			USART_rIdx = idx;
+			break;
+		}
+		else if(USART_rBuf[idx] == '+') {
 			/* This must be request header of message. */
 			r_state = REQ_INITIAL;
 			pPar = NULL;
@@ -165,6 +173,30 @@ void GetUnknow(void *pBuf) {
 			break;
 		}
 		else if(USART_rBuf[idx] == '\r') {
+			Clear2Unknow();
+			break;
+		}
+	}
+}
+
+void WifiConnected(void *pBuf) {
+	uint16_t r_len;
+	uint16_t idx;
+	uint8_t num_spliter = 0;
+	char wifi_str[] = "WIFI CONNECTED\r\nWIFI GOT IP\r\n";
+	uint16_t l = strlen(wifi_str);
+
+	for(r_len=0; (r_state == WIFICONNECTED) && IsUSARTReadable(r_len); r_len++) {
+		idx = (USART_rIdx + USART_READBUFLEN + r_len) % USART_READBUFLEN;
+		if(USART_rBuf[idx] == '\n')
+			num_spliter++;
+		if((num_spliter == 2) &&
+			(USART_rBuf[idx] == '\n')) {
+			/* Parse wifi connected message if message is completed. */
+			if(CmpInRing(USART_rIdx+r_len-l+1, wifi_str, l - 1)) {
+				USART_rIdx = idx;
+				PopInRing();
+			}
 			Clear2Unknow();
 			break;
 		}
@@ -590,7 +622,7 @@ void InitESP8266(void) {
 	new_connects == NULL;
 
 	xTaskCreate(vESP8266RTask,
-				"ESP8266 Driver UART receive",
+				"ESP8266 UART RX",
 				128,
 				NULL,
 				tskIDLE_PRIORITY,
