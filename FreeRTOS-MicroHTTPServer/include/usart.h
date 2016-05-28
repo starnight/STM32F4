@@ -15,6 +15,10 @@
 
 /* Initialize the USART6. */
 void setup_usart(void);
+#ifdef MIRRO_USART6
+/* Initialize the USART6. */
+void setup_usart2(void);
+#endif
 /* USART read 1 byte. */
 #define USART_ReadByte(USARTx)		(USART_ReceiveData(USARTx))
 /* USART send 1 byte. */

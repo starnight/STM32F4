@@ -17,5 +17,6 @@
 #define LEDS_GPIO_PORT (GPIOD) // LEDs connect to Port D
 
 void setup_leds(void);
+void delay(__IO uint32_t nCount);
 
 #endif

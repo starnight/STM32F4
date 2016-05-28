@@ -6,6 +6,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "gpio.h"
 
 /* FreeRTOS UART send and receive tasks handler. */
 TaskHandle_t sTask, rTask;
@@ -141,6 +142,7 @@ void GetUnknow(void *pBuf) {
 	uint16_t idx;
 	uint8_t num_spliter = 0;
 
+	GPIO_ResetBits(LEDS_GPIO_PORT, RED);
 	for(r_len=0; (r_state == UNKNOW) && IsUSARTReadable(r_len); r_len++) {
 		idx = (USART_rIdx + USART_READBUFLEN + r_len) % USART_READBUFLEN;
 		if((USART_rBuf[idx] == ',') || (USART_rBuf[idx] == ':')) {
@@ -152,6 +154,7 @@ void GetUnknow(void *pBuf) {
 			r_state = WIFICONNECTED;
 			pPar = NULL;
 			USART_rIdx = idx;
+			GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
 			break;
 		}
 		else if(USART_rBuf[idx] == '+') {
@@ -196,6 +199,7 @@ void WifiConnected(void *pBuf) {
 			if(CmpInRing(USART_rIdx+r_len-l+1, wifi_str, l - 1)) {
 				USART_rIdx = idx;
 				PopInRing();
+				GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
 			}
 			Clear2Unknow();
 			break;
@@ -581,18 +585,25 @@ void OnUSARTReceive(void *pBuf) {
 	}
 	if(f) {
 		/* Read a byte. */
-		USART_rBuf[USART_wIdx] = USART_ReadByte(usart);
+		USART_rBuf[USART_wIdx] = USART_ReadByte(USART6);//usart);
+#ifdef MIRRO_USART6
+		USART_SendByte(USART2, USART_rBuf[USART_wIdx]);
+#endif
 		USART_wIdx++;
 		/* Make sure the ESP8266 receive from USART hadler is working. */
 		if(eTaskGetState(rTask) == eSuspended) {
 			xTaskResumeFromISR(rTask);
 		}
 	}
+#if 0
+	USART_SendByte(USART2, USART_ReadByte(USART6));
+#endif
 }
 
 /* ESP8266 UART receive task. */
 void vESP8266RTask(void *__p) {
 	while(1) {
+		GPIO_ResetBits(LEDS_GPIO_PORT, ORANGE);
 		if(IsUSARTReadable(0)) {
 			r_event[r_state](pPar);
 		}
@@ -604,6 +615,7 @@ void vESP8266RTask(void *__p) {
 
 void InitESP8266(void) {
 	uint16_t i;
+	BaseType_t xReturned;
 
 	/* Zero client sockets' state. */
 	for(i=0; i<MAX_CLIENT+1; i++) {
@@ -611,22 +623,24 @@ void InitESP8266(void) {
 	}
 	/* Zero server socket's state. */
 	svrsock.state = 0;
-	/* Start USART for ESP8266. */
-	setup_usart();
 	/* Regist the callback ESP8266 for USART receive interrupt. */
 	RegistUSART6OnReceive(OnUSARTReceive, USART6);
+	/* Start USART for ESP8266. */
+	setup_usart();
 
 	r_state = UNKNOW;
 	pr_state = UNKNOW;
 	pPar = NULL;
 	new_connects == NULL;
 
-	xTaskCreate(vESP8266RTask,
-				"ESP8266 UART RX",
-				128,
-				NULL,
-				tskIDLE_PRIORITY,
-				&rTask);
+	xReturned = xTaskCreate(vESP8266RTask,
+							"ESP8266 UART RX",
+							1024,
+							NULL,
+							tskIDLE_PRIORITY,
+							&rTask);
+	if(xReturned == pdPASS)
+		GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
 }
 
 SOCKET HaveTcpServerSocket(void) {
@@ -647,6 +661,10 @@ void BindTcpSocket(uint16_t port) {
 	char mul_con[] = "AT+CIPMUX=1\r\n";
 	char as_server[] = "AT+CIPSERVER=1,8001\r\n";
 	TaskHandle_t task;
+
+	USART_rIdx = 0;
+	USART_wIdx = 0;
+	USART_ovr = 0;
 
 	task = xTaskGetCurrentTaskHandle();
 	if(new_connects == NULL)

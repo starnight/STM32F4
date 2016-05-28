@@ -19,7 +19,7 @@ static uint16_t leds[LEDn] = {GREEN, ORANGE, RED, BLUE};
 #define PAUSE_SHORT 10000L
 
 /* A simple time comsuming function. */
-static void delay(__IO uint32_t nCount) {
+void delay(__IO uint32_t nCount) {
     while(nCount--)
         __asm("nop"); // do nothing
 }

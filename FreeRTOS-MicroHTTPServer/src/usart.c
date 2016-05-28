@@ -31,7 +31,7 @@ void setup_usart(void) {
 	USART_InitTypeDef USART_InitStructure;
 	GPIO_InitTypeDef GPIO_InitStructure;
 
-	/* Enable the GPIOA peripheral clock. */
+	/* Enable the GPIOC peripheral clock. */
 	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);
 
 	/* Make PC6, PC7 as alternative function of USART6. */
@@ -78,6 +78,50 @@ void setup_usart(void) {
 	/* Enable USART6 in NVIC vector. */
 	NVIC_EnableIRQ(USART6_IRQn);
 }
+
+#ifdef MIRRO_USART6
+/* Initialize the USART2. */
+void setup_usart2(void) {
+	USART_InitTypeDef USART_InitStructure;
+	GPIO_InitTypeDef GPIO_InitStructure;
+
+	/* Enable the GPIOA peripheral clock. */
+	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+
+	/* Make PA2, PA3 as alternative function of USART2. */
+	GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2);
+	GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2);
+
+	/* Initialize PA2, PA3.  */
+	GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2 | GPIO_Pin_3;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+	/* Enable the USART2 peripheral clock. */
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);
+
+	/* Initialize USART2 with
+	 * 115200 buad rate,
+	 * 8 data bits,
+	 * 1 stop bit,
+	 * no parity check,
+	 * none flow control.
+	 */
+	USART_InitStructure.USART_BaudRate = 115200;
+	USART_InitStructure.USART_WordLength = USART_WordLength_8b;
+	USART_InitStructure.USART_StopBits = USART_StopBits_1;
+	USART_InitStructure.USART_Parity = USART_Parity_No;
+	USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+	USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+	USART_Init(USART2, &USART_InitStructure);
+
+	/* Enable USART2. */
+	USART_Cmd(USART2, ENABLE);
+}
+#endif
 
 /* Send bytes array with designated length through USART. */
 ssize_t USART_Send(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
