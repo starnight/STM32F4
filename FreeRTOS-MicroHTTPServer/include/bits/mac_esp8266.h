@@ -17,7 +17,7 @@
 
 void InitESP8266(void);
 SOCKET HaveTcpServerSocket(void);
-void BindTcpSocket(uint16_t port);
+int BindTcpSocket(uint16_t port);
 SOCKET AcceptTcpSocket(void);
 ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f);
 ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f);

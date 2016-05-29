@@ -1,6 +1,10 @@
 #include <ctype.h>
 #include <string.h>
 #include "usart.h"
+#include "gpio.h"
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "task.h"
 
 /* Define the structure of stream going to be written out. */
 typedef struct _STREAM {
@@ -76,7 +80,7 @@ void setup_usart(void) {
 		usart_stream_idx--)
 		ClearStream(usart_stream + usart_stream_idx - 1);
 	/* Initial the RX Queue. */
-	rxQueue = xQueueCreate(RX_QUUEUELEN, sizeof(uint8_t));
+	rxQueue = xQueueCreate(RX_QUEUELEN, sizeof(uint8_t));
 
 	/* Enable USART6 RX interrupt. */
 	USART_ITConfig(USART6, USART_IT_RXNE, ENABLE);
@@ -84,7 +88,7 @@ void setup_usart(void) {
 	NVIC_EnableIRQ(USART6_IRQn);
 }
 
-#ifdef MIRRO_USART6
+#ifdef MIRROR_USART6
 /* Initialize the USART2. */
 void setup_usart2(void) {
 	USART_InitTypeDef USART_InitStructure;
@@ -137,7 +141,7 @@ ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 
 	if(USARTx == USART6) {
 		for(i=0; i<l; i++) {
-			if(!xQueueReceive(rxQueue, &(b+i), 0)) {
+			if(!xQueueReceive(rxQueue, &(b[i]), 0)) {
 				break;
 			}
 		}
@@ -149,9 +153,9 @@ ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 /* Check USART RX buffer is readable. */
 int USART_Readable(USART_TypeDef *USARTx) {
 	if((USARTx == USART6) && (uxQueueMessagesWaiting(rxQueue)))
-		return true;
+		return 1;
 	else
-		return false;
+		return 0;
 }
 
 /* Send bytes array with designated length through USART. */
@@ -197,13 +201,20 @@ void USART_Printf(USART_TypeDef* USARTx, char *str) {
 void USART6_IRQHandler(void) {
 	uint8_t i;
 	uint8_t rxdata;
+	BaseType_t xHigherPriorityTaskWoken;
+
+	xHigherPriorityTaskWoken = pdFALSE;
 
 	/* USART6 RX interrupt. */
-	if((USART6->SR & USART_SR_RXNE) && (OnUSART6Receive != NULL)) {
-		//OnUSART6Receive(OnUSART6ReceivePA);
+	if(USART6->SR & USART_SR_RXNE) {
 		/* Push data into RX Queue. */
 		rxdata = USART_ReadByte(USART6);
-		xQueueSendToBackFromISR(rxQueue, &rxdata, NULL);
+#ifdef MIRROR_USART6
+		USART_SendByte(USART2, rxdata);
+		GPIO_ResetBits(LEDS_GPIO_PORT, RED);
+#endif
+		xQueueSendToBackFromISR(rxQueue, &rxdata, &xHigherPriorityTaskWoken);
+		//xQueueSendToBack(rxQueue, &rxdata, 0);
 	}
 
 	/* USART6 TX interrupt. */
@@ -228,6 +239,13 @@ void USART6_IRQHandler(void) {
 			if(i >= MAX_USART_STREAM)
 				USART_ITConfig(USART6, USART_IT_TXE, DISABLE);
 		}
+	}
+
+	if(xHigherPriorityTaskWoken) {
+		//taskYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+		//portEND_SWITCHING_ISR(xHigherPriorityTaskWoken);
+		taskYIELD();
+		//vPortYieldFromISR();
 	}
 }
 

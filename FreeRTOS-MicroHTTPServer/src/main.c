@@ -38,13 +38,14 @@ void MicroHTTPServer_task() {
 int main(void) {
 	BaseType_t xReturned;
 
-	delay(10000000L);
+	//delay(10000000L);
 	/* Initial LEDs. */
 	setup_leds();
 	GPIO_SetBits(LEDS_GPIO_PORT, ALL_LEDS);
 
-#ifdef MIRRO_USART6
+#ifdef MIRROR_USART6
 	setup_usart2();
+	USART_SendByte(USART2, 'T');
 #endif
 	/* Initial wifi network interface ESP8266. */
 	InitESP8266();
@@ -60,7 +61,7 @@ int main(void) {
 							tskIDLE_PRIORITY,
 							NULL);
 	if(xReturned == pdPASS)
-		GPIO_SetBits(LEDS_GPIO_PORT, ORANGE);
+		GPIO_ResetBits(LEDS_GPIO_PORT, ORANGE);
 
 	/* Start FreeRTOS task scheduler. */
 	vTaskStartScheduler();

@@ -1,3 +1,4 @@
+#if 0
 #include <string.h>
 #include <stdio.h>
 #include "bits/socket.h"
@@ -643,20 +644,6 @@ void InitESP8266(void) {
 		GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
 }
 
-SOCKET HaveTcpServerSocket(void) {
-	if(!_ISBIT_SET(svrsock.state, SOCKET_USING)) {
-		/* First time to have server socket.
-		 * There is only one server socket should be. */
-		svrsock.fd = ID2Sock(SERVER_SOCKET_ID);
-		_SET_BIT(svrsock.state, SOCKET_USING);
-		return svrsock.fd;
-	}
-	else {
-		/* No more server socket should be. */
-		return -1;
-	}
-}
-
 void BindTcpSocket(uint16_t port) {
 	char mul_con[] = "AT+CIPMUX=1\r\n";
 	char as_server[] = "AT+CIPSERVER=1,8001\r\n";
@@ -681,25 +668,6 @@ void BindTcpSocket(uint16_t port) {
 	USART_Send(USART6, as_server, strlen(as_server), NON_BLOCKING);
 	sTask = task;
 	vTaskSuspend(NULL);
-}
-
-SOCKET AcceptTcpSocket(void) {
-	SOCKET s;
-
-	if(xQueueReceive(new_connects, &s, 0) == pdTRUE) {
-		clisock[Sock2ID(s)].state = 0;
-		_SET_BIT(clisock[Sock2ID(s)].state, SOCKET_USING);
-		
-		if(uxQueueMessagesWaiting(new_connects) > 0)
-			_SET_BIT(svrsock.state, SOCKET_READABLE);
-		else
-			_CLR_BIT(svrsock.state, SOCKET_READABLE);
-
-		return s;
-	}
-	else {
-		return -1;
-	}
 }
 
 void vSendSocketTask(void *__p) {
@@ -749,7 +717,7 @@ ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 		clisock[id].slen = len;
 		xReturned = xTaskCreate(vSendSocketTask,
 								"Socket Send Task",
-								128,
+								,
 								&s,
 								tskIDLE_PRIORITY,
 								NULL);
@@ -832,6 +800,521 @@ int ShutdownSocket(SOCKET s, int how) {
 								128,
 								&s,
 								tskIDLE_PRIORITY,
+								NULL);
+	}
+
+	return 0;
+}
+#endif
+
+//------------------------------------------------------------------------------
+#include <string.h>
+#include <stdio.h>
+#include <errno.h>
+#include "bits/socket.h"
+#include "bits/mac_esp8266.h"
+#include "usart.h"
+#include "gpio.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include "semphr.h"
+
+#define MAX_SOCKETBUFLEN	1024
+
+typedef struct _sock_struct {
+	uint32_t peer_ip; /* Peer IP address. */
+	uint16_t peer_port; /* Peer port. */
+	uint16_t fd; /* File descriptor of the socket. */
+	uint16_t slen; /* Length of the payload going to be sent to peer. */
+	uint16_t rlen; /* Length of the payload going to receive from peer. */
+	QueueHandle_t rxQueue; /* Buffer for receive from client. */
+	uint8_t *sbuf; /* Points to the buffer going to be sent. */
+	uint8_t state; /* Socket status. */
+} _sock;
+
+_sock clisock[MAX_CLIENT];
+_sock svrsock;
+
+/* Set server socket's ID being last socket ID. */
+#define SERVER_SOCKET_ID	MAX_CLIENT
+
+/* Sockets pool queue handler. */
+QueueHandle_t new_connects;
+
+/* Socket and ID mapping macroes. */
+#define ID2Sock(id)	((SOCKET)(id + SOCKET_BASE))
+#define Sock2ID(s)	(s - SOCKET_BASE)
+
+#define ESP8266_NONE			0
+#define ESP8266_LINKED			1
+#define ESP8266_SEND_CMD_MODE	2
+#define ESP8266_REQ_MODE		3
+
+uint8_t ESP8266_state;
+
+/* ESP8266 UART channel usage mutex. */
+SemaphoreHandle_t xUSART_Mutex = NULL;
+
+#define USART_RXBUFLEN	64
+
+uint8_t USART_rBuf[USART_RXBUFLEN];
+uint16_t USART_rIdx;
+uint16_t USART_wIdx;
+
+#define IsNumChar(c) (('0' <= c) && (c <= '9'))
+
+/* Try to parse connected by a new client. */
+void GetClientConnented(void) {
+	uint16_t id;
+	SOCKET s;
+
+	if(sscanf(USART_rBuf, "%d,CONNECT\r\n", &id) > 0) {
+		/* Notify os server socket connected. */
+		s = ID2Sock(id);
+		xQueueSend(new_connects, &s, 0);
+		_SET_BIT(svrsock.state, SOCKET_READABLE);
+		/* Set initial state of the client sock. */
+		clisock[id].fd = ID2Sock(id);
+		clisock[id].rlen = 0;
+		clisock[id].slen = 0;
+		xQueueReset(clisock[Sock2ID(s)].rxQueue);
+		clisock[id].state = 0;
+		_SET_BIT(clisock[id].state, SOCKET_USING);
+	}
+}
+
+/* Try to parse request from a client. */
+void GetClientRequest(void) {
+	uint16_t id;
+	uint16_t len;
+	uint16_t n;
+	_sock *s;
+	uint8_t c;
+
+	if(sscanf(USART_rBuf, "+IPD,%d,%d:", &id, &len) == 2) {
+		clisock[id].rlen = len;
+		if(len > MAX_SOCKETBUFLEN) {
+			len = MAX_SOCKETBUFLEN;
+		}
+
+		n = 0;
+		while(n < len) {
+			s = clisock + id;
+			if(USART_Read(USART6, &c, 1, NON_BLOCKING) > 0) {
+				/* Read 1 byte from ESP8266 UART channel and
+				 * send it to related scoket. */
+				if(xQueueSendToBack(clisock[id].rxQueue, &c, 0) == pdTRUE) {
+					n++;
+					/* Notify os client socket has something to be read. */
+					_SET_BIT(s->state, SOCKET_READABLE);
+				}
+			}
+			else {
+				/* Wait for read 1 byte from ESP8266 UART channel. */
+				vTaskDelay(portTICK_PERIOD_MS);
+			}
+		}
+
+		clisock[id].rlen -= n;
+	}
+}
+
+/* Try to parse closed by a client. */
+void GetClientClosed(void) {
+	uint16_t id;
+	SOCKET s;
+
+	if(sscanf(USART_rBuf, "%d,CLOSED\r\n", &id) > 0) {
+		/* Notify os server socket close. */
+		s = ID2Sock(id);
+		/* Clear state of the client sock. */
+		xQueueReset(clisock[id].rxQueue);
+		clisock[id].state = 0;
+	}
+}
+
+/* Try to dispatch the request from ESP8266 UART channel. */
+void GetESP8266Request(void) {
+	ssize_t n;
+	uint8_t c;
+
+	/* Have request header from ESP8266 UART channel. */
+	USART_wIdx=0;
+	do {
+		if(USART_Read(USART6, &c, 1, NON_BLOCKING) > 0) {
+			USART_rBuf[USART_wIdx] = c;
+		}
+		USART_wIdx++;
+	} while(((c != '\n') || (c != ':')) && (USART_wIdx < USART_RXBUFLEN-1));
+	USART_rBuf[USART_wIdx] = '\0';
+
+	/* Try to parse request header. */
+	USART_rIdx = 0;
+	if(USART_wIdx < 4) {
+		/* Useless message. */
+	}
+	if(IsNumChar(USART_rBuf[0])) {
+		/* Number of ID part. */
+		for(USART_rIdx++;
+			IsNumChar(USART_rBuf[USART_rIdx]) &&
+				(USART_rIdx < (USART_wIdx - strlen(",CONNECT\r\n")));
+			USART_rIdx++);
+		if(USART_rBuf[USART_rIdx+2] == 'O') {
+			/* Go parse new ID connected. */
+			GetClientConnented();
+		}
+		else if(USART_rBuf[USART_rIdx+2] == 'L') {
+			/* Go parse an ID closed. */
+			GetClientClosed();
+		}
+	}
+	else if(strncmp(USART_rBuf, "+IPD,", 5) == 0) {
+		/* Go parse ID request. */
+		GetClientRequest();
+	}
+	else if(strncmp(USART_rBuf, "WIFI GOT IP", 11) == 0) {
+		/* Change ESP8266 UART channel state is ready for internet usage. */
+		ESP8266_state = ESP8266_LINKED;
+		GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
+	}
+	else if(strncmp(USART_rBuf, "WIFI CONNECTED", 14) == 0) {
+		/* Ignore for now. */
+	}
+}
+
+/* ESP8266 UART channel request parsing task. */
+void vESP8266RTask(void *__p) {
+	while(1) {
+		/* Try to take ESP8266 UART channel usage mutex. */
+		if(xSemaphoreTake(xUSART_Mutex, 0) == pdTRUE) {
+			if(USART_Readable(USART6)) {
+				/* There is a request from ESP8266 UART channel. */
+				GetESP8266Request();
+			}
+			/* Parse finished and releas ESP8266 UART channel usage mutex. */
+			xSemaphoreGive(xUSART_Mutex);
+		}
+		else {
+			/* Wait for ESP8266 UART channel usage mutex. */
+			vTaskDelay(portTICK_PERIOD_MS);
+		}
+	}
+}
+
+void InitESP8266(void) {
+	uint16_t i;
+	BaseType_t xReturned;
+
+	/* Zero ESP8266 state. */
+	ESP8266_state = ESP8266_NONE;
+
+	/* Zero client sockets' state. */
+	for(i=0; i<MAX_CLIENT+1; i++) {
+		clisock[i].state = 0;
+		clisock[i].rxQueue = xQueueCreate(MAX_SOCKETBUFLEN, sizeof(uint8_t));
+	}
+	/* Zero server socket's state. */
+	svrsock.state = 0;
+
+	/* Create ESP8266 UART channel usage mutex. */
+	xUSART_Mutex = xSemaphoreCreateMutex();
+	/* Create the new socket client connection queue. */
+	new_connects = xQueueCreate(MAX_CLIENT, sizeof(SOCKET));
+
+	/* Start USART for ESP8266. */
+	setup_usart();
+
+	/* Create ESP8266 parsing request from USART RX task. */
+	xReturned = xTaskCreate(vESP8266RTask,
+							"ESP8266 Parse Req",
+							1024,
+							NULL,
+							tskIDLE_PRIORITY + 2,
+							NULL);
+	if(xReturned == pdPASS)
+		GPIO_ResetBits(LEDS_GPIO_PORT, BLUE);
+}
+
+SOCKET HaveTcpServerSocket(void) {
+	if(!_ISBIT_SET(svrsock.state, SOCKET_USING)) {
+		/* First time to have server socket.
+		 * There is only one server socket should be. */
+		svrsock.fd = ID2Sock(SERVER_SOCKET_ID);
+		_SET_BIT(svrsock.state, SOCKET_USING);
+		return svrsock.fd;
+	}
+	else {
+		/* No more server socket should be. */
+		errno = ENFILE;
+		return -1;
+	}
+}
+
+int BindTcpSocket(uint16_t port) {
+	char mul_con[] = "AT+CIPMUX=1\r\n";
+	char as_server[24];
+	char res[7];
+	TaskHandle_t task;
+	ssize_t l, n;
+
+	task = xTaskGetCurrentTaskHandle();
+	if(new_connects == NULL)
+		new_connects = xQueueCreate(MAX_CLIENT, sizeof(SOCKET));
+
+	/* Make sure there is no pending message of ESP8266 RX data. */
+	while(!USART_Readable(USART6)) {
+		vTaskDelay(100);
+	}
+	/* Block to take ESP8266 UART channel usage mutex. */
+	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+		vTaskDelay(50);
+	}
+	/* Enable ESP8266 multiple connections. */
+	USART_Send(USART6, mul_con, strlen(mul_con), NON_BLOCKING);
+	l = 6;
+	n = 0;
+	do {
+		n += USART_Read(USART6, res, l-n, BLOCKING);
+	} while(n < l);
+	res[l] = '\0';
+
+	if(strncmp(res, "\r\nOK\r\n", 6) != 0) {
+		/* Releas ESP8266 UART channel usage mutex. */
+		xSemaphoreGive(xUSART_Mutex);
+		return -1;
+	}
+
+	/* Set ESP8266 as server and listening on designated port. */
+	snprintf(as_server, 24, "AT+CIPSERVER=1,%d\r\n", port);
+	USART_Send(USART6, as_server, strlen(as_server), NON_BLOCKING);
+	l = 6;
+	n = 0;
+	do {
+		n += USART_Read(USART6, res, l-n, BLOCKING);
+	} while(n < l);
+	res[l] = '\0';
+
+	/* Releas ESP8266 UART channel usage mutex. */
+	xSemaphoreGive(xUSART_Mutex);
+
+	if(strncmp(res, "\r\nOK\r\n", 6) == 0) {
+		return 0;
+	}
+	else {
+		errno = EBADF;
+		return -1;
+	}
+}
+
+SOCKET AcceptTcpSocket(void) {
+	SOCKET s;
+
+	if(xQueueReceive(new_connects, &s, 0) == pdTRUE) {
+		/* Have a new connected socket. */
+		/* Check is there still new clients from server socket. */
+		if(uxQueueMessagesWaiting(new_connects) > 0)
+			_SET_BIT(svrsock.state, SOCKET_READABLE);
+		else
+			_CLR_BIT(svrsock.state, SOCKET_READABLE);
+
+		return s;
+	}
+	else {
+		/* No new connected socket. */
+		errno = ENODATA;
+		return -1;
+	}
+}
+
+ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
+	uint16_t id = Sock2ID(s);
+	uint16_t i;
+	uint8_t *pBuf;
+	uint8_t c;
+
+	pBuf = buf;
+
+	for(i=0; i<len; i++) {
+		if(xQueueReceive(clisock[id].rxQueue, &c, 0)) {
+			pBuf[i] = c;
+		}
+		else {
+			break;
+		}
+	}
+
+	/* Check there are still more bytes to be read. */
+	if(uxQueueMessagesWaiting(clisock[id].rxQueue) > 0)
+		_SET_BIT(clisock[id].state, SOCKET_READABLE);
+	else
+		_CLR_BIT(clisock[id].state, SOCKET_READABLE);
+
+	return i;
+}
+
+void vSendSocketTask(void *__p) {
+	SOCKET *ps;
+	uint16_t id;
+	uint16_t len;
+	char send_header[22]; /* "AT+CIPSEND=id,len\r\n" */
+	char res[20];
+	ssize_t l, n;
+
+#define MAX_SOCKETSENDBUFLEN	2048
+
+	ps = (SOCKET *)__p;
+	id = Sock2ID(*ps);
+
+	/* Make sure there is no pending message of ESP8266 RX data. */
+	while(!USART_Readable(USART6)) {
+		vTaskDelay(100);
+	}
+	/* Block to take ESP8266 UART channel usage mutex. */
+	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+		/* Wait for ESP8266 UART channel usage mutex. */
+		vTaskDelay(50);
+	}
+
+	while(clisock[id].slen > 0) {
+		/* Split going to send packet into frame size. */
+		if(clisock[id].slen > MAX_SOCKETSENDBUFLEN) {
+			len = MAX_SOCKETSENDBUFLEN;
+		}
+		else {
+			len = clisock[id].slen;
+		}
+
+		/* Have send frame header which is send command. */
+		snprintf(send_header, 22, "AT+CIPSEND=%d,%d\r\n", id, len);
+		/* Send socket send command to ESP8266. */
+		USART_Send(USART6, send_header, strlen(send_header), NON_BLOCKING);
+		/* Have ESP8266 response message. */
+		l = 7;
+		n = 0;
+		do {
+			n += USART_Read(USART6, res, l-n, BLOCKING);
+		} while(n < l);
+		res[l] = '\0';
+
+		if(strncmp(res, "\r\nOK\r\n>", 7) != 0) {
+			break;
+		}
+
+		/* Send socket payload to ESP8266. */
+		USART_Send(USART6, clisock[id].sbuf, len, NON_BLOCKING);
+		/* Have ESP8266 response message. */
+		for(n=0; (n < 19); n++) {
+			while(USART_Read(USART6, res+n, 1, BLOCKING) <= 0);
+			if(res[n] == '\n') {
+				n++;
+				break;
+			}
+		}
+		res[n] = 0;
+
+		if(sscanf(res, "Recv %d bytes\r\n", &len) > 0) {
+			clisock[id].slen -= len;
+			clisock[id].sbuf += len;
+		}
+		else {
+			break;
+		}
+	}
+
+	/* Releas ESP8266 UART channel usage mutex. */
+	xSemaphoreGive(xUSART_Mutex);
+	/* Finish writing and clear the socket is not writing now. */
+	_CLR_BIT(clisock[id].state, SOCKET_WRITING);
+	/* Delete send socket task after it is finished. */
+	vTaskDelete(NULL);
+}
+
+ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
+	uint16_t id = Sock2ID(s);
+	BaseType_t xReturned;
+
+	if(!_ISBIT_SET(clisock[id].state, SOCKET_WRITING)) {
+		/* The socket is writeable. */
+		/* Set the socket is busy in writing now. */
+		_SET_BIT(clisock[id].state, SOCKET_WRITING);
+		clisock[id].sbuf = buf;
+		clisock[id].slen = len;
+		xReturned = xTaskCreate(vSendSocketTask,
+								"Socket Send Task",
+								128,
+								&(clisock[id].fd),
+								tskIDLE_PRIORITY + 1,
+								NULL);
+		errno = EAGAIN;
+	}
+	else {
+		/* The socket is busy in writing now. */
+		errno = EBUSY;
+	}
+
+	return -1;
+}
+
+void vCloseSocketTask(void *__p) {
+	SOCKET *ps;
+	uint16_t id;
+	char sd_sock[18]; /* Going to be "AT+CIPCLOSE=id\r\n" */
+	char res[20];
+	uint8_t n;
+	uint8_t num_spliter;
+
+	ps = (SOCKET *)__p;
+	id = Sock2ID(*ps);
+
+	/* Have close socket send command. */
+	snprintf(sd_sock, sizeof(sd_sock), "AT+CIPCLOSE=%d\r\n", id);
+
+	/* Make sure there is no pending message of ESP8266 RX data. */
+	while(!USART_Readable(USART6)) {
+		vTaskDelay(100);
+	}
+	/* Block to take ESP8266 UART channel usage mutex. */
+	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+		/* Wait for ESP8266 UART channel usage mutex. */
+		vTaskDelay(50);
+	}
+	/* Send close socket command to ESP8266. */
+	USART_Send(USART6, sd_sock, strlen(sd_sock), NON_BLOCKING);
+	/* Have ESP8266 response message. */
+	num_spliter = 0;
+	for(n=0; n<20; n++) {
+		while(USART_Read(USART6, res+n, 1, BLOCKING) <= 0);
+		if(res[n] == '\n')
+			num_spliter++;
+		if(num_spliter == 3) {
+			n++;
+			break;
+		}
+	}
+	res[n] = 0;
+
+	/* Releas ESP8266 UART channel usage mutex. */
+	xSemaphoreGive(xUSART_Mutex);
+
+	if(sscanf(res, "%d,CLOSED\r\n\r\nOK\r\n", &id) > 0) {
+		clisock[id].state = 0;
+	}
+	/* Delete close socket task after the socket is closed. */
+	vTaskDelete(NULL);
+}
+
+
+int ShutdownSocket(SOCKET s, int how) {
+	uint16_t id = Sock2ID(s);
+	BaseType_t xReturned;
+
+	if(_ISBIT_SET(clisock[id].state, SOCKET_USING)) {
+		xReturned = xTaskCreate(vCloseSocketTask,
+								"Close Socket Task",
+								configMINIMAL_STACK_SIZE,
+								&(clisock[id].fd),
+								tskIDLE_PRIORITY + 1,
 								NULL);
 	}
 

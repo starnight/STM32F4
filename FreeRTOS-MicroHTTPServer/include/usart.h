@@ -13,11 +13,11 @@
 #define BLOCKING		0
 #define NON_BLOCKING	1
 
-#define RX_QUUEUELEN	64
+#define RX_QUEUELEN		16
 
 /* Initialize the USART6. */
 void setup_usart(void);
-#ifdef MIRRO_USART6
+#ifdef MIRROR_USART6
 /* Initialize the USART6. */
 void setup_usart2(void);
 #endif

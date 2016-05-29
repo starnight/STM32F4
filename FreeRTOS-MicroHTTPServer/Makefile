@@ -102,7 +102,7 @@ DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx
 #    assert_failed(uint8_t* file, uint32_t line)
 # because it is conditionally used in the library
 # DEFS   += -DUSE_FULL_ASSERT
-DEFS += -DMIRRO_USART6
+DEFS += -DMIRROR_USART6
 
 ## Compiler options
 CFLAGS  = -ggdb

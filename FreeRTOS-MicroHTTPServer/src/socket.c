@@ -46,9 +46,7 @@ int bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len) {
 	struct sockaddr_in *s_addr;
 
 	s_addr = (struct sockaddr_in *)__addr;
-	BindTcpSocket(s_addr->sin_port);
-
-	return 0;
+	return BindTcpSocket(s_addr->sin_port);
 }
 
 /* Prepare to accept connections on socket FD.
