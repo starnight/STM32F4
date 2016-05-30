@@ -36,7 +36,7 @@ void MicroHTTPServer_task() {
  * startup_stm32f40_41xxx.s  (line 107)
  */
 int main(void) {
-	BaseType_t xReturned;
+	BaseType_t xReturned = NULL;
 
 	//delay(10000000L);
 	/* Initial LEDs. */
@@ -45,26 +45,29 @@ int main(void) {
 
 #ifdef MIRROR_USART6
 	setup_usart2();
-	USART_SendByte(USART2, 'T');
+	//USART_SendByte(USART2, 'T');
+	USART_Printf(USART2, "USART2 initialized.\r\n");
 #endif
 	/* Initial wifi network interface ESP8266. */
 	InitESP8266();
+	USART_Printf(USART2, "USART6 initialized.\r\n");
 	//GPIO_ResetBits(LEDS_GPIO_PORT, ALL_LEDS);
 	GPIO_SetBits(LEDS_GPIO_PORT, GREEN);
 
 	/* Add the task into FreeRTOS task scheduler. */
 	/* Add Micro HTTP Server. */
-	xReturned = xTaskCreate(MicroHTTPServer_task,
-							"Micro HTTP Server",
-							4096,
-							NULL,
-							tskIDLE_PRIORITY,
-							NULL);
+	//xReturned = xTaskCreate(MicroHTTPServer_task,
+	//						"Micro HTTP Server",
+	//						4096,
+	//						NULL,
+	//						tskIDLE_PRIORITY,
+	//						NULL);
 	if(xReturned == pdPASS)
 		GPIO_ResetBits(LEDS_GPIO_PORT, ORANGE);
 
 	/* Start FreeRTOS task scheduler. */
 	vTaskStartScheduler();
+	while(1);
 
     return 0; // never returns actually
 }

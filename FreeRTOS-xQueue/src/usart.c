@@ -158,7 +158,7 @@ ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 
 	if(USARTx == USART6) {
 		for(i=0; i<l; i++) {
-			if(!xQueueReceive(rxQueue, &(b[i]), 0)) {
+			if(!xQueueReceive(rxQueue, &(b[i]), 10)) {
 				break;
 			}
 		}
@@ -228,16 +228,16 @@ void USART6_IRQHandler(void) {
 
 	/* USART6 RX interrupt. */
 	if(USART6->SR & USART_SR_RXNE) {
+				GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
 		/* Push data into RX Queue. */
 		rxdata = USART_ReadByte(USART6);
 #ifdef MIRROR_USART6
-		//USART_SendByte(USART2, rxdata);
+		USART_SendByte(USART2, rxdata);
 #endif
 		if(rxPipeState > 0) {
-			if(xQueueSendToBackFromISR(rxQueue, &rxdata, &xHigherPriTaskWoken) == pdPASS)
-				GPIO_ResetBits(LEDS_GPIO_PORT, RED);
-			else
-				GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
+			//if(xQueueSendToBackFromISR(rxQueue, &rxdata, &xHigherPriTaskWoken) == pdPASS)
+			//	GPIO_ResetBits(LEDS_GPIO_PORT, RED);
+			//else
 		}
 	}
 #if 0
@@ -270,8 +270,8 @@ void USART6_IRQHandler(void) {
 	//	taskYIELD();
 		//vPortYieldFromISR();
 	//}
-	portEND_SWITCHING_ISR(xHigherPriTaskWoken);
 #endif
+	//portEND_SWITCHING_ISR(xHigherPriTaskWoken);
 }
 
 void RegistUSART6OnReceive(USART_CALLBACK cb, void *pa) {
