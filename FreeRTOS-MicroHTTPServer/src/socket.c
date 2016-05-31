@@ -36,6 +36,7 @@ int socket (int __domain, int __type, int __protocol) {
 		}
 		*/
 		i = HaveTcpServerSocket();
+		USART_Printf(USART2, "Server socket enabled.\r\n");
 	}
 
 	return i;
@@ -46,6 +47,7 @@ int bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len) {
 	struct sockaddr_in *s_addr;
 
 	s_addr = (struct sockaddr_in *)__addr;
+	USART_Printf(USART2, "Server socket going to be binded.\r\n");
 	return BindTcpSocket(s_addr->sin_port);
 }
 
@@ -53,6 +55,7 @@ int bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len) {
    N connection requests will be queued before further requests are refused.
    Returns 0 on success, -1 for errors.  */
 int listen (int __fd, int __n) {
+	USART_Printf(USART2, "Server socket is listening.\r\n");
 	return 0;
 }
 

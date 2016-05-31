@@ -36,12 +36,7 @@ QueueHandle_t new_connects;
 #define ID2Sock(id)	((SOCKET)(id + SOCKET_BASE))
 #define Sock2ID(s)	(s - SOCKET_BASE)
 
-#define ESP8266_NONE			0
-#define ESP8266_LINKED			1
-#define ESP8266_SEND_CMD_MODE	2
-#define ESP8266_REQ_MODE		3
-
-uint8_t ESP8266_state;
+uint8_t _ESP8266_state;
 
 /* ESP8266 UART channel usage mutex. */
 SemaphoreHandle_t xUSART_Mutex = NULL;
@@ -53,6 +48,11 @@ uint16_t USART_rIdx;
 uint16_t USART_wIdx;
 
 #define IsNumChar(c) (('0' <= c) && (c <= '9'))
+
+/* Get the status of ESP8266. */
+uint8_t GetESP8266State(void) {
+	return _ESP8266_state;
+}
 
 /* Try to parse connected by a new client. */
 void GetClientConnented(void) {
@@ -129,27 +129,44 @@ void GetClientClosed(void) {
 void GetESP8266Request(void) {
 	ssize_t n;
 	uint8_t c;
+	char s[8];
 
 	/* Have request header from ESP8266 UART channel. */
 	USART_wIdx=0;
 	do {
+		//USART_Printf(USART2, "Ding ");
 		if(USART_Read(USART6, &c, 1, NON_BLOCKING) > 0) {
+			//USART_Printf(USART2, "Doom ");
+			//snprintf(s, 8, "%d\r\n", (int)c);
+			//USART_Printf(USART2, s);
 			USART_rBuf[USART_wIdx] = c;
+			USART_wIdx++;
+			GPIO_SetBits(LEDS_GPIO_PORT, GREEN);
 		}
-		USART_wIdx++;
-	} while(((c != '\n') || (c != ':')) && (USART_wIdx < USART_RXBUFLEN-1));
+		else {
+			vTaskDelay(50);
+		}
+	} while(((c != '\n') && (c != ':')) && (USART_wIdx < USART_RXBUFLEN-1));
 	USART_rBuf[USART_wIdx] = '\0';
 
+	//USART_Printf(USART2, "\r\nRepeat: ");
+	//USART_Printf(USART2, USART_rBuf);
 	/* Try to parse request header. */
 	USART_rIdx = 0;
 	if(USART_wIdx < 4) {
 		/* Useless message. */
 	}
+	else if(strncmp(USART_rBuf, "WIFI GOT IP", 11) == 0) {
+		/* Change ESP8266 UART channel state is ready for internet usage. */
+		_ESP8266_state = ESP8266_LINKED;
+		USART_Printf(USART2, "Wifi enabled.\r\n");
+		//GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
+	}
 	else if(IsNumChar(USART_rBuf[0])) {
 		/* Number of ID part. */
 		for(USART_rIdx++;
 			IsNumChar(USART_rBuf[USART_rIdx]) &&
-				(USART_rIdx < (USART_wIdx - strlen(",CONNECT\r\n")));
+				(USART_rIdx < (USART_wIdx - strlen(",CLOSED\r\n")));
 			USART_rIdx++);
 		if(USART_rBuf[USART_rIdx+2] == 'O') {
 			/* Go parse new ID connected. */
@@ -164,11 +181,6 @@ void GetESP8266Request(void) {
 		/* Go parse ID request. */
 		GetClientRequest();
 	}
-	else if(strncmp(USART_rBuf, "WIFI GOT IP", 11) == 0) {
-		/* Change ESP8266 UART channel state is ready for internet usage. */
-		ESP8266_state = ESP8266_LINKED;
-		GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
-	}
 	else if(strncmp(USART_rBuf, "WIFI CONNECTED", 14) == 0) {
 		/* Ignore for now. */
 	}
@@ -181,15 +193,19 @@ void vESP8266RTask(void *__p) {
 	/* Enable the pipe with ESP8266 UART channel. */
 	USART_Printf(USART2, "Going to enable RX pipe.\r\n");
 	USART_EnableRxPipe(USART6);
+	USART_Printf(USART2, "RX pipe enabled.\r\n");
 
 	while(1) {
-		snprintf(s, 8, "%d\r\n", USART_Readable(USART6));
-		USART_Printf(USART2, s);
 		/* Try to take ESP8266 UART channel usage mutex. */
 		if(xSemaphoreTake(xUSART_Mutex, 0) == pdTRUE) {
 			if(USART_Readable(USART6)) {
+				//snprintf(s, 8, "%d\r\n", USART_Readable(USART6));
+				//USART_Printf(USART2, s);
 				/* There is a request from ESP8266 UART channel. */
 				GetESP8266Request();
+			}
+			else {
+				GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
 			}
 			/* Parse finished and releas ESP8266 UART channel usage mutex. */
 			xSemaphoreGive(xUSART_Mutex);
@@ -206,7 +222,7 @@ void InitESP8266(void) {
 	BaseType_t xReturned;
 
 	/* Zero ESP8266 state. */
-	ESP8266_state = ESP8266_NONE;
+	_ESP8266_state = ESP8266_NONE;
 
 	/* Zero client sockets' state. */
 	for(i=0; i<MAX_CLIENT+1; i++) {
@@ -229,10 +245,10 @@ void InitESP8266(void) {
 							"ESP8266 Parse Req",
 							1024,
 							NULL,
-							tskIDLE_PRIORITY + 1,
+							tskIDLE_PRIORITY,
 							NULL);
-	if(xReturned == pdPASS)
-		GPIO_ResetBits(LEDS_GPIO_PORT, BLUE);
+	//if(xReturned == pdPASS)
+	//	GPIO_ResetBits(LEDS_GPIO_PORT, BLUE);
 }
 
 SOCKET HaveTcpServerSocket(void) {
@@ -443,7 +459,7 @@ ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 								"Socket Send Task",
 								128,
 								&(clisock[id].fd),
-								tskIDLE_PRIORITY + 1,
+								tskIDLE_PRIORITY,
 								NULL);
 		errno = EAGAIN;
 	}
@@ -513,7 +529,7 @@ int ShutdownSocket(SOCKET s, int how) {
 								"Close Socket Task",
 								configMINIMAL_STACK_SIZE,
 								&(clisock[id].fd),
-								tskIDLE_PRIORITY + 1,
+								tskIDLE_PRIORITY,
 								NULL);
 	}
 
