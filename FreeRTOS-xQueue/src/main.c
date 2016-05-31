@@ -30,12 +30,13 @@ void main_task1() {
 /* Task 2. */
 void main_task2() {
 	uint8_t c;
-	USART_EnableRxPipe(USART6);
+
+	//USART_EnableRxPipe(USART6);
 	while(1) {
-		//if(xQueueReceive(Q, &c, 50))
-		//	USART_SendByte(USART2, c);
-		if(USART_Read(USART6, &c, 1, NON_BLOCKING))
-			USART_SendByte(USART2, c);
+		if(xQueueReceive(Q, &c, 50)) {
+		//if(USART_Read(USART6, &c, 1, NON_BLOCKING))
+			USART_Send(USART2, &c, 1, BLOCKING);
+		}
 	}
 }
 
@@ -50,7 +51,7 @@ int main(void) {
 	Q = xQueueCreate(16, sizeof(uint8_t));
 	USART_Printf(USART2, "Going to go!\r\n");
 	/* Add the main task into FreeRTOS task scheduler. */
-	//xTaskCreate(main_task1, "Main Task1", 512, NULL, tskIDLE_PRIORITY, NULL);
+	xTaskCreate(main_task1, "Main Task1", 512, NULL, tskIDLE_PRIORITY, NULL);
 	xTaskCreate(main_task2, "Main Task2", 512, NULL, tskIDLE_PRIORITY, NULL);
 
 	/* Start FreeRTOS task scheduler. */
