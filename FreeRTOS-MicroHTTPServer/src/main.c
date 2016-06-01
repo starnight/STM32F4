@@ -20,16 +20,18 @@
 /* Micro HTTP Server. */
 void MicroHTTPServer_task() {
 	HTTPServer srv;
-	
+	uint32_t ip;
+
 	/* Make sure the internet is worked. */
 	while(GetESP8266State() != ESP8266_LINKED) {
 		vTaskDelay(5000 * portTICK_PERIOD_MS);
 	}
 
-	USART_Printf(USART2, "Going to start Micro HTTP Server.\r\n");
 	GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
-
+	HaveInterfaceIP(&ip);
+	
 	AddRoute(HTTP_GET, "/", HelloPage);
+	USART_Printf(USART2, "Going to start Micro HTTP Server.\r\n");
 	HTTPServerInit(&srv, MTS_PORT);
 	USART_Printf(USART2, "Micro HTTP Server started and listening.\r\n");
 	HTTPServerRunLoop(&srv, Dispatch);

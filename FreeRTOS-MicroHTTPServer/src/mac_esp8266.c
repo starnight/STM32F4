@@ -251,6 +251,93 @@ void InitESP8266(void) {
 	//	GPIO_ResetBits(LEDS_GPIO_PORT, BLUE);
 }
 
+int HaveInterfaceIP(uint32_t *pip) {
+	char get_ip[] = "AT+CIFSR\r\n";
+	char res[40];
+	uint8_t ip[4];
+	ssize_t l, n;
+
+	char debug[80];
+
+	USART_Printf(USART2, "\tCheck there is still more bytes in RX queue\r\n");
+	/* Make sure there is no pending message of ESP8266 RX data. */
+	while(USART_Readable(USART6)) {
+		snprintf(debug, 80, "\tStill %d bytes in RX queue\r\n", USART_Readable(USART6));
+		USART_Printf(USART2, debug);
+		vTaskDelay(100);
+	}
+	USART_Printf(USART2, "\tTry to get ESP8266 channel mutex\r\n");
+	/* Block to take ESP8266 UART channel usage mutex. */
+	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+		USART_Printf(USART2, "\tStill can't get EXP8266 channel mutex\r\n");
+		vTaskDelay(50);
+	}
+	/* Get ESP8266 station IP. */
+	USART_Printf(USART2, "\tGoing to send AT+CIFSR command\r\n");
+	USART_Send(USART6, get_ip, strlen(get_ip), NON_BLOCKING);
+	l = strlen(get_ip) + 1;
+	n = 0;
+	do {
+		n += USART_Read(USART6, res, l-n, BLOCKING);
+		snprintf(debug, 80, "\tIn send get ip response.  Get %d bytes\r\n", n);
+		USART_Printf(USART2, debug);
+	} while(n < l);
+	res[n] = '\0';
+
+	if(strncmp(res, "AT+CIFSR\r\r\n", 11) != 0) {
+		for(n=0; n<l; n++) {
+			snprintf(debug, 80, "\t\t%d\r\n", res[n]);
+			USART_Printf(USART2, debug);
+		}
+		/* Releas ESP8266 UART channel usage mutex. */
+		xSemaphoreGive(xUSART_Mutex);
+		return -1;
+	}
+
+	/* Read IPs and MACs. */
+	USART_Printf(USART2, "\tGoing to get IP and MAC\r\n");
+	for(l=0; l<4; l++) { // Need 4 '\n'
+		for(n=0; res[n] != '\n'; n++) {
+			while(USART_Read(USART6, &res[n], 1, BLOCKING) < 1) {
+				USART_Printf(USART2, "\t\tWait IP and MAC message\r\n");
+				vTaskDelay(100);
+			}
+		}
+		if(strncmp(res, "+CIFSR:STAIP,", 13) == 0) {
+			USART_Printf(USART2, res);
+			sscanf(res, "+CIFSR:STAIP,\"%d.%d.%d.%d\"", &ip[0], &ip[1], &ip[2], &ip[3]);
+			*pip = ip[0] << 24 + ip[1] << 16 + ip[2] << 8 + ip[3];
+			break;
+		}
+	}
+
+	l = strlen("\r\nOK\r\n");
+	n = 0;
+	do {
+		n += USART_Read(USART6, res, l-n, BLOCKING);
+		snprintf(debug, 80, "\tGet IP response.  Get %d bytes\r\n", n);
+		USART_Printf(USART2, debug);
+	} while(n < l);
+	res[n] = '\0';
+
+	/* Releas ESP8266 UART channel usage mutex. */
+	xSemaphoreGive(xUSART_Mutex);
+
+	if(strncmp(res, "\r\nOK\r\n", 6) == 0) {
+		USART_Printf(USART2, "\tGet ip ok!\r\n");
+		return 0;
+	}
+	else {
+		for(n=0; n<l; n++) {
+			snprintf(debug, 80, "\t\t%d\r\n", res[n]);
+			USART_Printf(USART2, debug);
+		}
+		USART_Printf(USART2, "\tGet ip failed!\r\n");
+		errno = EBADF;
+		return -1;
+	}
+}
+
 SOCKET HaveTcpServerSocket(void) {
 	if(!_ISBIT_SET(svrsock.state, SOCKET_USING)) {
 		/* First time to have server socket.
@@ -268,63 +355,80 @@ SOCKET HaveTcpServerSocket(void) {
 
 int BindTcpSocket(uint16_t port) {
 	char mul_con[] = "AT+CIPMUX=1\r\n";
-	char as_server[24];
-	char res[7];
+	char as_server[30];
+	char res[30];
 	TaskHandle_t task;
 	ssize_t l, n;
 
 	char debug[80];
 
-	task = xTaskGetCurrentTaskHandle();
+	//task = xTaskGetCurrentTaskHandle();
 	if(new_connects == NULL)
 		new_connects = xQueueCreate(MAX_CLIENT, sizeof(SOCKET));
 
+	USART_Printf(USART2, "\tCheck there is still more bytes in RX queue\r\n");
 	/* Make sure there is no pending message of ESP8266 RX data. */
-	while(!USART_Readable(USART6)) {
+	while(USART_Readable(USART6)) {
+		snprintf(debug, 80, "\tStill %d bytes in RX queue\r\n", USART_Readable(USART6));
+		USART_Printf(USART2, debug);
 		vTaskDelay(100);
 	}
+	USART_Printf(USART2, "\tTry to get ESP8266 channel mutex\r\n");
 	/* Block to take ESP8266 UART channel usage mutex. */
 	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+		USART_Printf(USART2, "\tStill can't get EXP8266 channel mutex\r\n");
 		vTaskDelay(50);
 	}
 	/* Enable ESP8266 multiple connections. */
+	USART_Printf(USART2, "\tGoing to send MUX=1 AT command\r\n");
 	USART_Send(USART6, mul_con, strlen(mul_con), NON_BLOCKING);
-	l = 6;
+	l = strlen(mul_con) + strlen("\r\nOK\r\n") + 1;
 	n = 0;
 	do {
 		n += USART_Read(USART6, res, l-n, BLOCKING);
 		snprintf(debug, 80, "\tIn set MUX=1 response.  Get %d bytes\r\n", n);
 		USART_Printf(USART2, debug);
 	} while(n < l);
-	res[l] = '\0';
+	res[n] = '\0';
 
-	if(strncmp(res, "\r\nOK\r\n", 6) != 0) {
+	if(strncmp(res, "AT+CIPMUX=1\r\r\n\r\nOK\r\n", 20) != 0) {
+		for(n=0; n<l; n++) {
+			snprintf(debug, 80, "\t\t%d\r\n", res[n]);
+			USART_Printf(USART2, debug);
+		}
 		/* Releas ESP8266 UART channel usage mutex. */
 		xSemaphoreGive(xUSART_Mutex);
 		return -1;
 	}
 
 	/* Set ESP8266 as server and listening on designated port. */
-	snprintf(as_server, 24, "AT+CIPSERVER=1,%d\r\n", port);
+	snprintf(as_server, 30, "AT+CIPSERVER=1,%d\r\n", port);
+	USART_Printf(USART2, "\tGoing to send ");
+	USART_Printf(USART2, as_server);
 	USART_Send(USART6, as_server, strlen(as_server), NON_BLOCKING);
-	l = 6;
+	l = strlen(as_server) + strlen("\r\nOK\r\n") + 1;
 	n = 0;
 	do {
 		n += USART_Read(USART6, res, l-n, BLOCKING);
 		snprintf(debug, 80, "\tIn set server listening on %d response.  Get %d bytes\r\n", port, n);
 		USART_Printf(USART2, debug);
 	} while(n < l);
-	res[l] = '\0';
+	res[n] = '\0';
 
 	/* Releas ESP8266 UART channel usage mutex. */
 	xSemaphoreGive(xUSART_Mutex);
 
-	if(strncmp(res, "\r\nOK\r\n", 6) == 0) {
-		USART_Printf("\tBind socket ok!\r\n");
+	snprintf(as_server, 30, "AT+CIPSERVER=1,%d\r\r\n\r\nOK\r\n", port);
+	if(strncmp(res, as_server, strlen(as_server)) == 0) {
+		USART_Printf(USART2, "\tBind socket ok!\r\n");
 		return 0;
 	}
 	else {
-		USART_Printf("\tBind socket failed!\r\n");
+		for(n=0; n<l; n++) {
+			snprintf(debug, 80, "\t\t%d\r\n", res[n]);
+			USART_Printf(USART2, debug);
+		}
+		USART_Printf(USART2, "\tBind socket failed!\r\n");
 		errno = EBADF;
 		return -1;
 	}
@@ -388,7 +492,7 @@ void vSendSocketTask(void *__p) {
 	SOCKET *ps;
 	uint16_t id;
 	uint16_t len;
-	char send_header[22]; /* "AT+CIPSEND=id,len\r\n" */
+	char send_header[30]; /* "AT+CIPSEND=id,len\r\n" */
 	char res[20];
 	ssize_t l, n;
 
@@ -417,7 +521,7 @@ void vSendSocketTask(void *__p) {
 		}
 
 		/* Have send frame header which is send command. */
-		snprintf(send_header, 22, "AT+CIPSEND=%d,%d\r\n", id, len);
+		snprintf(send_header, 30, "AT+CIPSEND=%d,%d\r\n", id, len);
 		/* Send socket send command to ESP8266. */
 		USART_Send(USART6, send_header, strlen(send_header), NON_BLOCKING);
 		/* Have ESP8266 response message. */
@@ -495,6 +599,8 @@ void vCloseSocketTask(void *__p) {
 	uint8_t n;
 	uint8_t num_spliter;
 
+	char debug[30];
+
 	ps = (SOCKET *)__p;
 	id = Sock2ID(*ps);
 
@@ -529,7 +635,7 @@ void vCloseSocketTask(void *__p) {
 
 	/* Releas ESP8266 UART channel usage mutex. */
 	xSemaphoreGive(xUSART_Mutex);
-	snprintf(debug, 30, "\tReceive %d bytes to task\r\n", i);
+	snprintf(debug, 30, "\tReceive %d bytes to task\r\n", n);
 	USART_Printf(USART2, debug);
 
 	if(sscanf(res, "%d,CLOSED\r\n\r\nOK\r\n", &id) > 0) {

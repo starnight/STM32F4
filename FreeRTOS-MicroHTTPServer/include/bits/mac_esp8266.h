@@ -22,6 +22,7 @@
 #define MAX_CLIENT 			5
 
 void InitESP8266(void);
+int HaveInterfaceIP(uint32_t *);
 uint8_t GetESP8266State(void);
 SOCKET HaveTcpServerSocket(void);
 int BindTcpSocket(uint16_t port);

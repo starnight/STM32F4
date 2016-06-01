@@ -341,7 +341,7 @@ void USART6_IRQHandler(void) {
 		/* Push data into RX Queue. */
 		rxdata = USART_ReadByte(USART6);
 #ifdef MIRROR_USART6
-		USART_SendByte(USART2, rxdata);
+		//USART_SendByte(USART2, rxdata);
 #endif
 		if(rxPipeState > 0) {
 			//if(xQueueSendToBackFromISR(rxQueue, &rxdata, &xHigherPriTaskWoken) == pdPASS)
