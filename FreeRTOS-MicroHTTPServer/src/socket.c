@@ -36,7 +36,10 @@ int socket (int __domain, int __type, int __protocol) {
 		}
 		*/
 		i = HaveTcpServerSocket();
-		USART_Printf(USART2, "Server socket enabled.\r\n");
+		if(i == (MAX_CLIENT + SOCKET_BASE))
+			USART_Printf(USART2, "Server socket enabled.\r\n");
+		else
+			USART_Printf(USART2, "Server socket enable failed.\r\n");
 	}
 
 	return i;

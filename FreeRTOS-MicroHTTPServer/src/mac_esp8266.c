@@ -273,6 +273,8 @@ int BindTcpSocket(uint16_t port) {
 	TaskHandle_t task;
 	ssize_t l, n;
 
+	char debug[80];
+
 	task = xTaskGetCurrentTaskHandle();
 	if(new_connects == NULL)
 		new_connects = xQueueCreate(MAX_CLIENT, sizeof(SOCKET));
@@ -291,6 +293,8 @@ int BindTcpSocket(uint16_t port) {
 	n = 0;
 	do {
 		n += USART_Read(USART6, res, l-n, BLOCKING);
+		snprintf(debug, 80, "\tIn set MUX=1 response.  Get %d bytes\r\n", n);
+		USART_Printf(USART2, debug);
 	} while(n < l);
 	res[l] = '\0';
 
@@ -307,6 +311,8 @@ int BindTcpSocket(uint16_t port) {
 	n = 0;
 	do {
 		n += USART_Read(USART6, res, l-n, BLOCKING);
+		snprintf(debug, 80, "\tIn set server listening on %d response.  Get %d bytes\r\n", port, n);
+		USART_Printf(USART2, debug);
 	} while(n < l);
 	res[l] = '\0';
 
@@ -314,9 +320,11 @@ int BindTcpSocket(uint16_t port) {
 	xSemaphoreGive(xUSART_Mutex);
 
 	if(strncmp(res, "\r\nOK\r\n", 6) == 0) {
+		USART_Printf("\tBind socket ok!\r\n");
 		return 0;
 	}
 	else {
+		USART_Printf("\tBind socket failed!\r\n");
 		errno = EBADF;
 		return -1;
 	}
@@ -325,9 +333,13 @@ int BindTcpSocket(uint16_t port) {
 SOCKET AcceptTcpSocket(void) {
 	SOCKET s;
 
+	char debug[80];
+
 	if(xQueueReceive(new_connects, &s, 0) == pdTRUE) {
 		/* Have a new connected socket. */
 		/* Check is there still new clients from server socket. */
+		snprintf(debug, 80, "\tGet a client socket %d from accept pool\r\n", s);
+		USART_Printf(USART2, debug);
 		if(uxQueueMessagesWaiting(new_connects) > 0)
 			_SET_BIT(svrsock.state, SOCKET_READABLE);
 		else
@@ -337,6 +349,7 @@ SOCKET AcceptTcpSocket(void) {
 	}
 	else {
 		/* No new connected socket. */
+		USART_Printf(USART2, "\tGet a client socket from accept poll failed\r\n");
 		errno = ENODATA;
 		return -1;
 	}
@@ -348,6 +361,8 @@ ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
 	uint8_t *pBuf;
 	uint8_t c;
 
+	char debug[30];
+
 	pBuf = buf;
 
 	for(i=0; i<len; i++) {
@@ -358,7 +373,8 @@ ssize_t RecvSocket(SOCKET s, void *buf, size_t len, int f) {
 			break;
 		}
 	}
-
+	snprintf(debug, 30, "\tReceive %d bytes to task\r\n", i);
+	USART_Printf(USART2, debug);
 	/* Check there are still more bytes to be read. */
 	if(uxQueueMessagesWaiting(clisock[id].rxQueue) > 0)
 		_SET_BIT(clisock[id].state, SOCKET_READABLE);
@@ -499,7 +515,9 @@ void vCloseSocketTask(void *__p) {
 	/* Have ESP8266 response message. */
 	num_spliter = 0;
 	for(n=0; n<20; n++) {
-		while(USART_Read(USART6, res+n, 1, BLOCKING) <= 0);
+		while(USART_Read(USART6, res+n, 1, BLOCKING) <= 0) {
+			vTaskDelay(100);
+		}
 		if(res[n] == '\n')
 			num_spliter++;
 		if(num_spliter == 3) {
@@ -511,6 +529,8 @@ void vCloseSocketTask(void *__p) {
 
 	/* Releas ESP8266 UART channel usage mutex. */
 	xSemaphoreGive(xUSART_Mutex);
+	snprintf(debug, 30, "\tReceive %d bytes to task\r\n", i);
+	USART_Printf(USART2, debug);
 
 	if(sscanf(res, "%d,CLOSED\r\n\r\nOK\r\n", &id) > 0) {
 		clisock[id].state = 0;
@@ -518,7 +538,6 @@ void vCloseSocketTask(void *__p) {
 	/* Delete close socket task after the socket is closed. */
 	vTaskDelete(NULL);
 }
-
 
 int ShutdownSocket(SOCKET s, int how) {
 	uint16_t id = Sock2ID(s);
@@ -532,7 +551,6 @@ int ShutdownSocket(SOCKET s, int how) {
 								tskIDLE_PRIORITY,
 								NULL);
 	}
-
 	return 0;
 }
 
