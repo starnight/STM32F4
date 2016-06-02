@@ -68,6 +68,7 @@ int listen (int __fd, int __n) {
    peer and *ADDR_LEN to the address's actual length, and return the
    new socket's descriptor, or -1 for errors.  */
 int accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addr_len) {
+	USART_Printf(USART2, "Going to get new connected fd.\r\n");
 	return AcceptTcpSocket();
 }
 

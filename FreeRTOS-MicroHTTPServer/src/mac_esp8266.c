@@ -23,8 +23,8 @@ typedef struct _sock_struct {
 	uint8_t state; /* Socket status. */
 } _sock;
 
-_sock clisock[MAX_CLIENT];
-_sock svrsock;
+_sock clisock[MAX_CLIENT + 1];
+#define svrsock	(clisock[MAX_CLIENT])
 
 /* Set server socket's ID being last socket ID. */
 #define SERVER_SOCKET_ID	MAX_CLIENT
@@ -59,18 +59,22 @@ void GetClientConnented(void) {
 	uint16_t id;
 	SOCKET s;
 
+	char debug[80];
+
 	if(sscanf(USART_rBuf, "%d,CONNECT\r\n", &id) > 0) {
-		/* Notify os server socket connected. */
 		s = ID2Sock(id);
-		xQueueSend(new_connects, &s, 0);
-		_SET_BIT(svrsock.state, SOCKET_READABLE);
 		/* Set initial state of the client sock. */
-		clisock[id].fd = ID2Sock(id);
+		clisock[id].fd = s;
 		clisock[id].rlen = 0;
 		clisock[id].slen = 0;
 		xQueueReset(clisock[Sock2ID(s)].rxQueue);
 		clisock[id].state = 0;
 		_SET_BIT(clisock[id].state, SOCKET_USING);
+		/* Notify os server socket connected. */
+		snprintf(debug, 80, "\t\t\tFD: %d, ID: %d connected\r\n", s, id);
+		USART_Printf(USART2, debug);
+		xQueueSend(new_connects, &s, 0);
+		_SET_BIT(svrsock.state, SOCKET_READABLE);
 	}
 }
 
@@ -82,12 +86,16 @@ void GetClientRequest(void) {
 	_sock *s;
 	uint8_t c;
 
+	char debug[80];
+
 	if(sscanf(USART_rBuf, "+IPD,%d,%d:", &id, &len) == 2) {
 		clisock[id].rlen = len;
 		if(len > MAX_SOCKETBUFLEN) {
 			len = MAX_SOCKETBUFLEN;
 		}
 
+		snprintf(debug, 80, "\t\t\tRead request content %d bytes from ID: %d: ", len, id);
+		USART_Printf(USART2, debug);
 		n = 0;
 		while(n < len) {
 			s = clisock + id;
@@ -96,6 +104,7 @@ void GetClientRequest(void) {
 				 * send it to related scoket. */
 				if(xQueueSendToBack(clisock[id].rxQueue, &c, 0) == pdTRUE) {
 					n++;
+					//USART_Send(USART2, &c, 1, BLOCKING);
 				}
 			}
 			else {
@@ -116,12 +125,16 @@ void GetClientClosed(void) {
 	uint16_t id;
 	SOCKET s;
 
+	char debug[80];
+
 	if(sscanf(USART_rBuf, "%d,CLOSED\r\n", &id) > 0) {
 		/* Notify os server socket close. */
 		s = ID2Sock(id);
 		/* Clear state of the client sock. */
 		xQueueReset(clisock[id].rxQueue);
 		clisock[id].state = 0;
+		snprintf(debug, 80, "\t\t\tFD: %d, ID: %d closed\r\n", s, id);
+		USART_Printf(USART2, debug);
 	}
 }
 
@@ -129,7 +142,7 @@ void GetClientClosed(void) {
 void GetESP8266Request(void) {
 	ssize_t n;
 	uint8_t c;
-	char s[8];
+	char s[12];
 
 	/* Have request header from ESP8266 UART channel. */
 	USART_wIdx=0;
@@ -137,7 +150,7 @@ void GetESP8266Request(void) {
 		//USART_Printf(USART2, "Ding ");
 		if(USART_Read(USART6, &c, 1, NON_BLOCKING) > 0) {
 			//USART_Printf(USART2, "Doom ");
-			//snprintf(s, 8, "%d\r\n", (int)c);
+			//snprintf(s, 12, "%d %c\r\n", (int)c, c);
 			//USART_Printf(USART2, s);
 			USART_rBuf[USART_wIdx] = c;
 			USART_wIdx++;
@@ -149,8 +162,8 @@ void GetESP8266Request(void) {
 	} while(((c != '\n') && (c != ':')) && (USART_wIdx < USART_RXBUFLEN-1));
 	USART_rBuf[USART_wIdx] = '\0';
 
-	//USART_Printf(USART2, "\r\nRepeat: ");
-	//USART_Printf(USART2, USART_rBuf);
+	USART_Printf(USART2, "\r\n\tRepeat: ");
+	USART_Printf(USART2, USART_rBuf);
 	/* Try to parse request header. */
 	USART_rIdx = 0;
 	if(USART_wIdx < 4) {
@@ -164,26 +177,31 @@ void GetESP8266Request(void) {
 	}
 	else if(IsNumChar(USART_rBuf[0])) {
 		/* Number of ID part. */
-		for(USART_rIdx++;
+		for(; //USART_rIdx++;
 			IsNumChar(USART_rBuf[USART_rIdx]) &&
 				(USART_rIdx < (USART_wIdx - strlen(",CLOSED\r\n")));
 			USART_rIdx++);
 		if(USART_rBuf[USART_rIdx+2] == 'O') {
 			/* Go parse new ID connected. */
+			USART_Printf(USART2, "\t\tGot new ID connected\r\n");
 			GetClientConnented();
 		}
 		else if(USART_rBuf[USART_rIdx+2] == 'L') {
 			/* Go parse an ID closed. */
+			USART_Printf(USART2, "\t\tGot an ID closed\r\n");
 			GetClientClosed();
 		}
 	}
 	else if(strncmp(USART_rBuf, "+IPD,", 5) == 0) {
 		/* Go parse ID request. */
+		USART_Printf(USART2, "\t\tGot new request\r\n");
 		GetClientRequest();
 	}
 	else if(strncmp(USART_rBuf, "WIFI CONNECTED", 14) == 0) {
 		/* Ignore for now. */
 	}
+
+	//USART_Printf(USART2, "Be in Receive task\r\n");
 }
 
 /* ESP8266 UART channel request parsing task. */
@@ -208,6 +226,7 @@ void vESP8266RTask(void *__p) {
 				GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
 			}
 			/* Parse finished and releas ESP8266 UART channel usage mutex. */
+			//USART_Printf(USART2, "Going to give mutex\r\n");
 			xSemaphoreGive(xUSART_Mutex);
 		}
 		else {
@@ -225,7 +244,7 @@ void InitESP8266(void) {
 	_ESP8266_state = ESP8266_NONE;
 
 	/* Zero client sockets' state. */
-	for(i=0; i<MAX_CLIENT+1; i++) {
+	for(i=0; i<MAX_CLIENT; i++) {
 		clisock[i].state = 0;
 		clisock[i].rxQueue = xQueueCreate(MAX_SOCKETBUFLEN, sizeof(uint8_t));
 	}
@@ -286,7 +305,7 @@ int HaveInterfaceIP(uint32_t *pip) {
 
 	if(strncmp(res, "AT+CIFSR\r\r\n", 11) != 0) {
 		for(n=0; n<l; n++) {
-			snprintf(debug, 80, "\t\t%d\r\n", res[n]);
+			snprintf(debug, 80, "\t\t%d %c\r\n", res[n], res[n]);
 			USART_Printf(USART2, debug);
 		}
 		/* Releas ESP8266 UART channel usage mutex. */
@@ -297,17 +316,21 @@ int HaveInterfaceIP(uint32_t *pip) {
 	/* Read IPs and MACs. */
 	USART_Printf(USART2, "\tGoing to get IP and MAC\r\n");
 	for(l=0; l<4; l++) { // Need 4 '\n'
-		for(n=0; res[n] != '\n'; n++) {
+		n = -1;
+		do {
+			n++;
 			while(USART_Read(USART6, &res[n], 1, BLOCKING) < 1) {
 				USART_Printf(USART2, "\t\tWait IP and MAC message\r\n");
 				vTaskDelay(100);
 			}
-		}
+		} while(res[n] != '\n');
+		res[n + 1] = '\0';
+
+		USART_Printf(USART2, "\t\tGet ");
+		USART_Printf(USART2, res);
 		if(strncmp(res, "+CIFSR:STAIP,", 13) == 0) {
-			USART_Printf(USART2, res);
 			sscanf(res, "+CIFSR:STAIP,\"%d.%d.%d.%d\"", &ip[0], &ip[1], &ip[2], &ip[3]);
 			*pip = ip[0] << 24 + ip[1] << 16 + ip[2] << 8 + ip[3];
-			break;
 		}
 	}
 
@@ -324,7 +347,8 @@ int HaveInterfaceIP(uint32_t *pip) {
 	xSemaphoreGive(xUSART_Mutex);
 
 	if(strncmp(res, "\r\nOK\r\n", 6) == 0) {
-		USART_Printf(USART2, "\tGet ip ok!\r\n");
+		snprintf(debug, 80, "\tGet ip %d.%d.%d.%d ok!\r\n", ip[0], ip[1], ip[2], ip[3]);
+		USART_Printf(USART2, debug);
 		return 0;
 	}
 	else {
@@ -343,6 +367,7 @@ SOCKET HaveTcpServerSocket(void) {
 		/* First time to have server socket.
 		 * There is only one server socket should be. */
 		svrsock.fd = ID2Sock(SERVER_SOCKET_ID);
+		svrsock.state = 0;
 		_SET_BIT(svrsock.state, SOCKET_USING);
 		return svrsock.fd;
 	}
@@ -664,8 +689,8 @@ int IsSocketReady2Read(SOCKET s) {
 	uint16_t id = Sock2ID(s);
 	uint8_t mask = (1 << SOCKET_USING) | (1 << SOCKET_READABLE);
 
-	if((0 <= id) && (id < MAX_CLIENT))
-		return (clisock[id].state & mask) > 0;
+	if((0 <= id) && (id <= MAX_CLIENT))
+		return (clisock[id].state & mask) == mask;
 	else
 		return 0;
 }
