@@ -36,6 +36,7 @@ SRCS  += src/usart.c
 SRCS  += src/socket.c
 SRCS  += src/select.c
 SRCS  += src/mac_esp8266.c
+SRCS  += src/static_dummy_task.c
 SRCS  += lib/server.c
 SRCS  += lib/middleware.c
 SRCS  += src/app.c
@@ -102,12 +103,12 @@ DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx
 #    assert_failed(uint8_t* file, uint32_t line)
 # because it is conditionally used in the library
 # DEFS   += -DUSE_FULL_ASSERT
-DEFS += -DMIRROR_USART6
+DEFS += -DMIRROR_USART6 -DMAX_HTTP_CLIENT=3
 
 ## Compiler options
 CFLAGS  = -ggdb
 # please do not optimize anything because we are debugging
-CFLAGS += -O0
+CFLAGS += -Os
 CFLAGS += -Wextra -Warray-bounds
 CFLAGS += -mlittle-endian -mthumb -mcpu=cortex-m4 -mthumb-interwork
 CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16

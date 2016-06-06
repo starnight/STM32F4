@@ -20,8 +20,8 @@ int select(SOCKET nfds, fd_set *__readfds, fd_set *__writefds,
 			if(IsSocketReady2Read(i)) {
 				/* The interested socket is ready to be read. */
 				c++;
-				snprintf(debug, 80, "FD %d is ready to be read.\r\n", i);
-				USART_Printf(USART2, debug);
+				//snprintf(debug, 80, "FD %d is ready to be read.\r\n", i);
+				//USART_Printf(USART2, debug);
 			}
 			else {
 				/* The interested socket is not ready to be read. */
@@ -36,8 +36,8 @@ int select(SOCKET nfds, fd_set *__readfds, fd_set *__writefds,
 			else {
 				/* The interested socket is not ready to be written. */
 				FD_CLR(i, __readfds);
-				snprintf(debug, 80, "FD %d is ready to be written.\r\n", i);
-				USART_Printf(USART2, debug);
+				//snprintf(debug, 80, "FD %d is ready to be written.\r\n", i);
+				//USART_Printf(USART2, debug);
 			}
 		}
 		if((__exceptfds != NULL) && FD_ISSET(i, __exceptfds)) {

@@ -5,6 +5,9 @@
 #include <errno.h>
 #include "server.h"
 
+#include <stdio.h>
+#include "usart.h"
+
 typedef void (*SOCKET_CALLBACK)(void *);
 
 #define NOTWORK_SOCKET      0
@@ -325,6 +328,8 @@ void HTTPServerRun(HTTPServer *srv, HTTPREQ_CALLBACK callback) {
 	struct timeval timeout = {0, 0};
 	uint16_t i;
 
+	char debug[36];
+
 	/* Copy master socket queue to readable, writeable socket queue. */
 	readable = srv->_read_sock_pool;
 	writeable = srv->_write_sock_pool;
@@ -361,6 +366,8 @@ void HTTPServerRun(HTTPServer *srv, HTTPREQ_CALLBACK callback) {
 				http_req[i].clisock = -1;
 				http_req[i].work_state = NOTWORK_SOCKET;
 			}
+			snprintf(debug, 36, "Sock %d in %d state\r\n", http_req[i].clisock, http_req[i].work_state);
+			USART_Printf(USART2, debug);
 		}
 	}
 }
