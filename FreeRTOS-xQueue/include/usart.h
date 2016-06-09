@@ -13,7 +13,7 @@
 #define BLOCKING		0
 #define NON_BLOCKING	1
 
-#define RX_QUEUELEN		512
+#define RX_QUEUELEN		16
 
 /* Initialize the USART6. */
 void setup_usart(void);

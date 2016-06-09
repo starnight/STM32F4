@@ -13,23 +13,10 @@ typedef struct _STREAM {
 } STREAM;
 
 /* Define the USART RX Queue for buffering. */
-//QueueHandle_t rxQueue;
+QueueHandle_t rxQueue;
 
 /* USART RX pipe enable flag. */
 uint8_t rxPipeState;
-
-typedef struct _rx_Queue {
-	uint16_t wIdx;
-	uint16_t rIdx;
-	uint16_t rLen;
-	uint8_t eSize;
-	uint8_t ovr;
-	uint8_t *buf;
-} RX_QUEUE;
-
-RX_QUEUE __rxQueue;
-uint8_t __rxBuf[RX_QUEUELEN];
-RX_QUEUE *rxQueue;
 
 static USART_CALLBACK OnUSART6Receive = NULL;
 static int *OnUSART6ReceivePA = NULL;
@@ -52,100 +39,9 @@ void RegistUSART6OnRecevie(USART_CALLBACK cb, void *pa) {
 /* Set state USART RX pipe enable flag. */
 void USART_SetRxPipe(USART_TypeDef *USARTx, int f) {
 	if(USARTx == USART6) {
-		rxPipeState = f;
+		rxPipeState = (f > 0);
+		USART_Printf(USART2, "RX pipe enabled.\r\n");
 	}
-}
-
-/* Push an element into the queue. */
-int PushQueue(RX_QUEUE *__q, void *__pe) {
-	uint8_t *b;
-	uint8_t i;
-	uint8_t f;
-
-	b = __pe;
-	f = 0;
-
-	if((__q->ovr == 0) && (__q->wIdx < __q->rLen)) {
-		f = 1;
-	}
-	else if((__q->ovr == 0) && (__q->rLen <= __q->wIdx) && (0 < __q->rIdx)) {
-		f = 1;
-		__q->ovr = 1;
-		__q->wIdx = 0;
-	}
-	else if((__q->ovr == 1) && (__q->wIdx < __q->rIdx)) {
-		f = 1;
-	}
-
-	if(f) {
-		/* Zero copy an element to buffer according the size of each element. */
-		for(i=0; i<__q->eSize; i++)
-			*(__q->buf + __q->eSize*__q->wIdx + i) = b[i];
-		/* Increment wIdx. */
-		__q->wIdx += 1;
-	}
-
-	return f;
-}
-
-/* Pop and receive an element from the queue. */
-int PopQueue(RX_QUEUE *__q, void *__pe) {
-	uint8_t *b;
-	uint8_t i;
-	uint8_t f;
-
-	b = __pe;
-	f = 0;
-
-	if((__q->ovr == 0) && (__q->rIdx < __q->wIdx)) {
-		f = 1;
-	}
-	else if((__q->ovr == 1) && (__q->rLen <= __q->rIdx) && (0 < __q->wIdx)) {
-		f = 1;
-		__q->ovr = 0;
-		__q->rIdx = 0;
-	}
-	else if((__q->ovr == 1) && (__q->rIdx < __q->rLen)) {
-		f = 1;
-	}
-
-	if(f) {
-		/* Zero copy an element from buffer according the size of each element. */
-		for(i=0; i<__q->eSize; i++)
-			b[i] = *(__q->buf + __q->eSize*__q->rIdx + i);
-		/* Increment rIdx. */
-		__q->rIdx += 1;
-	}
-
-	return f;
-}
-
-/* Get how many element in the queue. */
-int QueueMessagesWaiting(RX_QUEUE *__q) {
-	if(__q->ovr) {
-		return (__q->rLen - __q->rIdx + __q->wIdx);
-	}
-	else {
-		return (__q->wIdx - __q->rIdx);
-	}
-}
-
-/* Clear the elements in the queue. */
-void ResetQueue(RX_QUEUE *__q) {
-	__q->wIdx = 0;
-	__q->rIdx = 0;
-	__q->ovr = 0;
-}
-
-/* Have an empty queue with designated number of elements
- * with designated size of each element. */
-int CreateQueue(RX_QUEUE *__q, void *__pb, uint16_t __len, uint8_t __esize) {
-	ResetQueue(__q);
-	__q->rLen = __len;
-	__q->eSize = __esize;
-	__q->buf = __pb;
-
-	return 1;
 }
 
 /* Initialize the USART6. */
@@ -195,10 +91,8 @@ void setup_usart(void) {
 		usart_stream_idx--)
 		ClearStream(usart_stream + usart_stream_idx - 1);
 	/* Initial the RX Queue. */
-	//rxQueue = xQueueCreate(RX_QUEUELEN, sizeof(uint8_t));
-	rxQueue = &__rxQueue;
-	CreateQueue(rxQueue, __rxBuf, RX_QUEUELEN, sizeof(uint8_t));
-	if(rxQueue != NULL)
+	rxQueue = xQueueCreate(RX_QUEUELEN, sizeof(uint8_t));
+	if(rxQueue)
 		USART_Printf(USART2, "RX pipe created.\r\n");
 	else
 		USART_Printf(USART2, "RX pipe created failed.\r\n");
@@ -264,8 +158,7 @@ ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 
 	if(USARTx == USART6) {
 		for(i=0; i<l; i++) {
-			//if(!xQueueReceive(rxQueue, &(b[i]), 0)) {
-			if(!PopQueue(rxQueue, &(b[i]))){ 
+			if(!xQueueReceive(rxQueue, &(b[i]), 10)) {
 				break;
 			}
 		}
@@ -280,13 +173,10 @@ int USART_Readable(USART_TypeDef *USARTx) {
 	//	return 1;
 	//else
 	//	return 0;
-	if(USARTx == USART6) {
-		//return uxQueueMessagesWaiting(rxQueue);
-		return QueueMessagesWaiting(rxQueue);
-	}
-	else {
+	if(USARTx == USART6)
+		return uxQueueMessagesWaiting(rxQueue);
+	else
 		return 0;
-	}
 }
 
 /* Send bytes array with designated length through USART. */
@@ -338,24 +228,19 @@ void USART6_IRQHandler(void) {
 
 	/* USART6 RX interrupt. */
 	if(USART6->SR & USART_SR_RXNE) {
+				GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
 		/* Push data into RX Queue. */
 		rxdata = USART_ReadByte(USART6);
 #ifdef MIRROR_USART6
-		//USART_SendByte(USART2, rxdata);
+		USART_SendByte(USART2, rxdata);
 #endif
 		if(rxPipeState > 0) {
 			//if(xQueueSendToBackFromISR(rxQueue, &rxdata, &xHigherPriTaskWoken) == pdPASS)
-			if(PushQueue(rxQueue, &rxdata)) {
-				GPIO_SetBits(LEDS_GPIO_PORT, RED);
-				GPIO_ResetBits(LEDS_GPIO_PORT, BLUE);
-			}
-			else {
-				GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
-				GPIO_ResetBits(LEDS_GPIO_PORT, RED);
-			}
+			//	GPIO_ResetBits(LEDS_GPIO_PORT, RED);
+			//else
 		}
 	}
-
+#if 0
 	/* USART6 TX interrupt. */
 	if(USART6->SR & USART_SR_TXE) {
 		if(usart_stream[usart_stream_idx].BufLen > 0) {
@@ -385,6 +270,7 @@ void USART6_IRQHandler(void) {
 	//	taskYIELD();
 		//vPortYieldFromISR();
 	//}
+#endif
 	//portEND_SWITCHING_ISR(xHigherPriTaskWoken);
 }
 

@@ -36,6 +36,10 @@ int socket (int __domain, int __type, int __protocol) {
 		}
 		*/
 		i = HaveTcpServerSocket();
+		if(i == (MAX_CLIENT + SOCKET_BASE))
+			USART_Printf(USART2, "Server socket enabled.\r\n");
+		else
+			USART_Printf(USART2, "Server socket enable failed.\r\n");
 	}
 
 	return i;
@@ -46,15 +50,15 @@ int bind (int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len) {
 	struct sockaddr_in *s_addr;
 
 	s_addr = (struct sockaddr_in *)__addr;
-	BindTcpSocket(s_addr->sin_port);
-
-	return 0;
+	USART_Printf(USART2, "Server socket going to be binded.\r\n");
+	return BindTcpSocket(s_addr->sin_port);
 }
 
 /* Prepare to accept connections on socket FD.
    N connection requests will be queued before further requests are refused.
    Returns 0 on success, -1 for errors.  */
 int listen (int __fd, int __n) {
+	USART_Printf(USART2, "Server socket is listening.\r\n");
 	return 0;
 }
 
@@ -64,6 +68,7 @@ int listen (int __fd, int __n) {
    peer and *ADDR_LEN to the address's actual length, and return the
    new socket's descriptor, or -1 for errors.  */
 int accept (int __fd, __SOCKADDR_ARG __addr, socklen_t *__restrict __addr_len) {
+	//USART_Printf(USART2, "Going to get new connected fd.\r\n");
 	return AcceptTcpSocket();
 }
 
@@ -93,5 +98,6 @@ int setsockopt (int __fd, int __level, int __optname,
      SHUT_RDWR = No more receptions or transmissions.
    Returns 0 on success, -1 for errors.  */
 int shutdown (int __fd, int __how) {
+	//USART_Printf(USART2, "Socket is going to be shutdown\r\n");
 	return ShutdownSocket(__fd, __how);
 }

@@ -18,7 +18,7 @@ STM_DIR=../../STM32F4xx_DSP_StdPeriph_Lib_V1.6.1
 STM_SRC = $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/src
 
 # This is the directory containing FreeRTOS
-FREERTOS_DIR=../../FreeRTOSv9.0.0/FreeRTOS
+FREERTOS_DIR=../../FreeRTOSV8.2.1/FreeRTOS
 
 # These are where the FreeRTOS files located
 FREERTOS_SRC=$(FREERTOS_DIR)/Source
@@ -31,15 +31,8 @@ vpath %.c $(STM_SRC)
 
 # My source file
 SRCS   = src/main.c
-SRCS  += src/gpio.c
 SRCS  += src/usart.c
-SRCS  += src/socket.c
-SRCS  += src/select.c
-SRCS  += src/mac_esp8266.c
-SRCS  += src/static_dummy_task.c
-SRCS  += lib/server.c
-SRCS  += lib/middleware.c
-SRCS  += src/app.c
+SRCS  += src/gpio.c
 
 # Contains initialisation code and must be compiled into
 # our project. This file is in the current directory and
@@ -67,7 +60,6 @@ SRCS +=$(FREERTOS_PORT_PLAT)/port.c
 INC_DIRS  = $(STM_DIR)/Libraries/CMSIS/Include
 INC_DIRS += $(STM_DIR)/Libraries/CMSIS/Device/ST/STM32F4xx/Include
 INC_DIRS += $(STM_DIR)/Libraries/STM32F4xx_StdPeriph_Driver/inc
-INC_DIRS += lib
 INC_DIRS += include
 
 # The header files of FreeRTOS
@@ -103,20 +95,20 @@ DEFS    = -DUSE_STDPERIPH_DRIVER -DSTM32F40_41xxx
 #    assert_failed(uint8_t* file, uint32_t line)
 # because it is conditionally used in the library
 # DEFS   += -DUSE_FULL_ASSERT
-DEFS += -DMIRROR_USART6 -DMAX_HTTP_CLIENT=5
+DEFS += -DMIRROR_USART6
 
 ## Compiler options
 CFLAGS  = -ggdb
 # please do not optimize anything because we are debugging
 CFLAGS += -Os
-CFLAGS += -Wextra -Warray-bounds
+CFLAGS += -Wall -Wextra -Warray-bounds
 CFLAGS += -mlittle-endian -mthumb -mcpu=cortex-m4 -mthumb-interwork
 CFLAGS += -mfloat-abi=hard -mfpu=fpv4-sp-d16
 
 ## Linker options
 # tell ld which linker file to use
 # (this file is in the current directory)
-LFLAGS  = -Tstm32_flash.ld -specs=nosys.specs #--specs=rdimon.specs
+LFLAGS  = -Tstm32_flash.ld
 
 
 ######################################################################
