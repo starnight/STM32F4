@@ -1,5 +1,4 @@
-This is a FreeRTOS USART TX-RX interrupts example for STM32F407, especially for STM32F4-Discovery.
-It is [GPIO example](https://github.com/starnight/STM32F4/tree/master/GPIO) extended with FreeRTOS library.
+This is the Micro HTTP Server on FreeRTOS example for STM32F407, especially for STM32F4-Discovery.
 
 ### Tools and software requirements ###
 
@@ -27,9 +26,15 @@ According to the schematic of [STM32F4-Discovery](http://www.st.com/st-web-ui/st
 
 * User Button: PA0 connected to B1
 
-* USART6 TX: PC6
+* USART2 TX: PA2 connected to console RX
 
-* USART6 RX: PC7
+* USART2 RX: PA3 connected to console TX
+
+* USART6 TX: PC6 connected to ESP8266 RX
+
+* USART6 RX: PC7 connected to ESP8266 TX
+
+The Wifi module [ESP01](https://www.hackster.io/esp/products/esp8266-esp-01) is one kind of ESP8266 Wifi module.
 
 ### Usage ###
 
@@ -43,8 +48,10 @@ According to the schematic of [STM32F4-Discovery](http://www.st.com/st-web-ui/st
 
 4. Flash to STM32F407: ``` make flash ```
 
-5. Reset the power of STM32F4-Discovery.
+5. Get a terminal connected with the right UART settings to USART2 on STM32F407. (115200 baud rate, 8 data bits, 1 stop bit, no parity check and non-flow control.)
 
-6. Get a terminal connected with the right UART settings to USART6 on STM32F407. (115200 baud rate, 8 data bits, 1 stop bit, no parity check and non-flow control.)
+6. Get a ESP8266 connected with the right UART settings to USART6 on STM32F407. (115200 baud rate, 8 data bits, 1 stop bit, no parity check and non-flow control.)
 
-7. Press any key and it will echo.
+7. Reset the power of STM32F4-Discovery.
+
+8. Wait the Micro HTTP Server being started. Then use a browser to browse the defined web pages or web APIs.
