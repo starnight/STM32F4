@@ -272,7 +272,6 @@ void InitESP8266(void) {
 	setup_usart();
 
 	/* Create ESP8266 parsing request from USART RX task. */
-	USART_Printf(USART2, "Going to reate RX task\r\n");
 	xReturned = xTaskCreate(vESP8266RTask,
 						    "ESP8266 RX",
 							300,
