@@ -5,9 +5,6 @@
 #include <errno.h>
 #include "server.h"
 
-#include <stdio.h>
-#include "usart.h"
-
 typedef void (*SOCKET_CALLBACK)(void *);
 
 #define NOTWORK_SOCKET      0

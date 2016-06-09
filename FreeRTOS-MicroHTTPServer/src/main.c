@@ -28,14 +28,18 @@ void MicroHTTPServer_task() {
 	}
 
 	GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
+	/* Get the server IP. */
 	HaveInterfaceIP(&ip);
-	
+
+	/* Start Micro HTTP server. */
 	AddRoute(HTTP_GET, "/", HelloPage);
+	AddRoute(HTTP_POST, "/fib", Fib);
 	USART_Printf(USART2, "Going to start Micro HTTP Server.\r\n");
 	HTTPServerInit(&srv, MTS_PORT);
 	USART_Printf(USART2, "Micro HTTP Server started and listening.\r\n");
 	while(1) {
 		HTTPServerRun(&srv, Dispatch);
+		/* Reschedule after each HTTP server run turn. */
 		vTaskDelay(10);
 	}
 	HTTPServerClose(&srv);
@@ -56,9 +60,9 @@ int main(void) {
 	delay(10000000L);
 	/* Initial LEDs. */
 	setup_leds();
-	//GPIO_SetBits(LEDS_GPIO_PORT, ALL_LEDS);
 
 #ifdef MIRROR_USART6
+	/* Initial console interface. */
 	setup_usart2();
 	USART_Printf(USART2, "USART2 initialized.\r\n");
 #endif
