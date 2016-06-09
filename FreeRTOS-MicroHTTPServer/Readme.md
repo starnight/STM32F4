@@ -34,7 +34,7 @@ According to the schematic of [STM32F4-Discovery](http://www.st.com/st-web-ui/st
 
 * USART6 RX: PC7 connected to ESP8266 TX
 
-The Wifi module [ESP01](https://www.hackster.io/esp/products/esp8266-esp-01) is one kind of ESP8266 Wifi module.
+The WiFi module [ESP01](https://www.hackster.io/esp/products/esp8266-esp-01) is one kind of ESP8266 WiFi module.
 
 ### Usage ###
 
