@@ -36,7 +36,6 @@ SRCS  += src/usart.c
 SRCS  += src/socket.c
 SRCS  += src/select.c
 SRCS  += src/mac_esp8266.c
-SRCS  += src/static_dummy_task.c
 SRCS  += lib/server.c
 SRCS  += lib/middleware.c
 SRCS  += src/app.c
