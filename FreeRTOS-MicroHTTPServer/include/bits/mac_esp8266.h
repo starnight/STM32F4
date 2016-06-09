@@ -19,7 +19,7 @@
 #define _TOGGLE_BIT(r, b)	((r) ^= (1 << (b)))
 #define _ISBIT_SET(r, b)	(((r) & (1 << (b))) > 0)
 
-#define MAX_CLIENT 			3
+#define MAX_CLIENT 			5
 
 void InitESP8266(void);
 int HaveInterfaceIP(uint32_t *);

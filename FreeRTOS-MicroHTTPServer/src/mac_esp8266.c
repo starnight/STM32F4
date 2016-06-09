@@ -10,7 +10,7 @@
 #include "queue.h"
 #include "semphr.h"
 
-#define MAX_SOCKETBUFLEN	1024
+#define MAX_SOCKETBUFLEN	2048
 
 typedef struct _sock_struct {
 	uint32_t peer_ip; /* Peer IP address. */
@@ -40,12 +40,47 @@ uint8_t _ESP8266_state;
 
 /* ESP8266 UART channel usage mutex. */
 SemaphoreHandle_t xUSART_Mutex = NULL;
+//uint8_t xUSART_Mutex;
+
+uint8_t _ESP8266_Command;
+SOCKET	_working_sock;
+
+#define ESP8266_NONE_COMMAND	0
+#define ESP8266_SEND_COMMAND	1
+#define ESP8266_CLOSE_COMMAND	2
+
+uint8_t TakeMutex(uint8_t *m) {
+	uint8_t r = 0;
+
+	if((m != NULL) && (*m == 0)) {
+		*m = 1;
+		r = 1;
+	}
+
+	return r;
+}
+
+uint8_t GiveMutex(uint8_t *m) {
+	uint8_t r;
+
+	if(m != NULL) {
+		*m = 0;
+		r = 1;
+	}
+	else {
+		r = 0;
+	}
+
+	return r;
+}
 
 #define USART_RXBUFLEN	64
 
 uint8_t USART_rBuf[USART_RXBUFLEN];
 uint16_t USART_rIdx;
 uint16_t USART_wIdx;
+
+TaskHandle_t xCommandTask;
 
 #define IsNumChar(c) (('0' <= c) && (c <= '9'))
 
@@ -128,7 +163,7 @@ void GetClientClosed(void) {
 	uint16_t id;
 	SOCKET s;
 
-	char debug[80];
+	char debug[30];
 
 	if(sscanf(USART_rBuf, "%d,CLOSED\r\n", &id) > 0) {
 		/* Notify os server socket close. */
@@ -136,7 +171,7 @@ void GetClientClosed(void) {
 		/* Clear state of the client sock. */
 		xQueueReset(clisock[id].rxQueue);
 		clisock[id].state = 0;
-		snprintf(debug, 80, "\t\t\tFD: %d, ID: %d closed\r\n", s, id);
+		snprintf(debug, 30, "\t\t\tFD: %d, ID: %d closed\r\n", s, id);
 		USART_Printf(USART2, debug);
 	}
 }
@@ -209,7 +244,7 @@ void GetESP8266Request(void) {
 
 /* ESP8266 UART channel request parsing task. */
 void vESP8266RTask(void *__p) {
-	//char s[8];
+	char s[2] = "0";
 	
 	/* Enable the pipe with ESP8266 UART channel. */
 	//USART_Printf(USART2, "Going to enable RX pipe.\r\n");
@@ -220,7 +255,13 @@ void vESP8266RTask(void *__p) {
 	while(1) {
 		/* Try to take ESP8266 UART channel usage mutex. */
 		if(xSemaphoreTake(xUSART_Mutex, 100) == pdTRUE) {
-			if(USART_Readable(USART6)) {
+		//if(TakeMutex(&xUSART_Mutex)) {
+			//USART_Printf(USART2, "\t\tRX task get mutex ");
+			//s[0] = '0' + _ESP8266_state;
+			//USART_Printf(USART2, s);
+			//USART_Printf(USART2, "\r\n");
+			//if(USART_Readable(USART6)) {
+			while(USART_Readable(USART6)) {
 				//snprintf(s, 8, "%d\r\n", USART_Readable(USART6));
 				//USART_Printf(USART2, s);
 				/* There is a request from ESP8266 UART channel. */
@@ -228,16 +269,45 @@ void vESP8266RTask(void *__p) {
 				GetESP8266Request();
 				//USART_Printf(USART2, "Be in Receive task\r\n");
 			}
-			else {
-				GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
-			}
+			//else {
+			GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
+			//}
 			/* Parse finished and releas ESP8266 UART channel usage mutex. */
 			//USART_Printf(USART2, "Going to give mutex\r\n");
 			xSemaphoreGive(xUSART_Mutex);
+			//GiveMutex(&xUSART_Mutex);
+		}
+		//else {
+		/* Wait for ESP8266 UART channel usage mutex or new request from ESP8266 UART channel. */
+		vTaskDelay(1000*portTICK_PERIOD_MS);
+		//}
+	}
+}
+
+void vSendSocketTask(void *);
+void vCloseSocketTask(void *);
+
+void vESP8266TTask(void *__p) {
+	while(1) {
+		/* Try to take ESP8266 UART channel usage mutex. */
+		if(xSemaphoreTake(xUSART_Mutex, 100) == pdTRUE) {
+			USART_Printf(USART2, "\tStart TX task\r\n");
+			switch(_ESP8266_Command){
+				case ESP8266_SEND_COMMAND:
+					vSendSocketTask(&_working_sock);
+					break;
+				case ESP8266_CLOSE_COMMAND:
+					vCloseSocketTask(&_working_sock);
+					break;
+				default: break;
+			}
+			USART_Printf(USART2, "\tGive mutex\r\n");
+			xSemaphoreGive(xUSART_Mutex);
+			USART_Printf(USART2, "\tEnd TX task\r\n");
+			vTaskSuspend(NULL);
 		}
 		else {
-			/* Wait for ESP8266 UART channel usage mutex. */
-			vTaskDelay(portTICK_PERIOD_MS);
+			vTaskDelay(1000);
 		}
 	}
 }
@@ -253,6 +323,7 @@ void InitESP8266(void) {
 
 	/* Zero ESP8266 state. */
 	_ESP8266_state = ESP8266_NONE;
+	_ESP8266_Command = ESP8266_NONE_COMMAND;
 
 	/* Zero client sockets' state. */
 	for(i=0; i<MAX_CLIENT; i++) {
@@ -274,7 +345,7 @@ void InitESP8266(void) {
 	USART_Printf(USART2, "Going to reate RX task\r\n");
 	xReturned = xTaskCreate(vESP8266RTask,
 						    "ESP8266 RX",
-							7*1024,
+							300,
 							NULL,
 							tskIDLE_PRIORITY,
 							&xHandle);
@@ -299,6 +370,20 @@ void InitESP8266(void) {
 	else {
 		USART_Printf(USART2, "Create RX task failed\r\n");
 	}
+	
+	xReturned = xTaskCreate(vESP8266TTask,
+							"ESP8266 TX",
+							250,
+							NULL,
+							tskIDLE_PRIORITY,
+							&xCommandTask);
+	if(xReturned == pdPASS) {
+		vTaskSuspend(xCommandTask);
+		GPIO_SetBits(LEDS_GPIO_PORT, BLUE);
+	}
+	else {
+		USART_Printf(USART2, "Create TX task failed\r\n");
+	}
 }
 
 int HaveInterfaceIP(uint32_t *pip) {
@@ -319,6 +404,7 @@ int HaveInterfaceIP(uint32_t *pip) {
 	//USART_Printf(USART2, "\tTry to get ESP8266 channel mutex\r\n");
 	/* Block to take ESP8266 UART channel usage mutex. */
 	while(xSemaphoreTake(xUSART_Mutex, 100) != pdTRUE) {
+	//while(!TakeMutex(&xUSART_Mutex)) {
 		//USART_Printf(USART2, "\tStill can't get EXP8266 channel mutex\r\n");
 		vTaskDelay(50);
 	}
@@ -343,6 +429,7 @@ int HaveInterfaceIP(uint32_t *pip) {
 		//}
 		/* Releas ESP8266 UART channel usage mutex. */
 		xSemaphoreGive(xUSART_Mutex);
+		//GiveMutex(&xUSART_Mutex);
 		return -1;
 	}
 
@@ -378,6 +465,7 @@ int HaveInterfaceIP(uint32_t *pip) {
 
 	/* Releas ESP8266 UART channel usage mutex. */
 	xSemaphoreGive(xUSART_Mutex);
+	//GiveMutex(&xUSART_Mutex);
 
 	if(strncmp(res, "\r\nOK\r\n", 6) == 0) {
 		snprintf(debug, 80, "\tGet ip %d.%d.%d.%d ok!\r\n", ip[0], ip[1], ip[2], ip[3]);
@@ -435,6 +523,7 @@ int BindTcpSocket(uint16_t port) {
 	USART_Printf(USART2, "\tTry to get ESP8266 channel mutex\r\n");
 	/* Block to take ESP8266 UART channel usage mutex. */
 	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+	//while(!TakeMutex(&xUSART_Mutex)) {
 		USART_Printf(USART2, "\tStill can't get EXP8266 channel mutex\r\n");
 		vTaskDelay(50);
 	}
@@ -457,6 +546,7 @@ int BindTcpSocket(uint16_t port) {
 		}
 		/* Releas ESP8266 UART channel usage mutex. */
 		xSemaphoreGive(xUSART_Mutex);
+		//GiveMutex(&xUSART_Mutex);
 		return -1;
 	}
 
@@ -478,6 +568,7 @@ int BindTcpSocket(uint16_t port) {
 
 	/* Releas ESP8266 UART channel usage mutex. */
 	xSemaphoreGive(xUSART_Mutex);
+	//GiveMutex(&xUSART_Mutex);
 
 	snprintf(as_server, 30, "AT+CIPSERVER=1,%d\r\r\n\r\nOK\r\n", port);
 	if(strncmp(res, as_server, strlen(as_server)) == 0) {
@@ -505,7 +596,7 @@ SOCKET AcceptTcpSocket(void) {
 		/* Check is there still new clients from server socket. */
 		//snprintf(debug, 80, "\tGet a client socket %d from accept pool\r\n", s);
 		//USART_Printf(USART2, debug);
-		USART_Printf(USART2, "\tGet a client socket from accept pool\r\n");
+		//USART_Printf(USART2, "\tGet a client socket from accept pool\r\n");
 		if(uxQueueMessagesWaiting(new_connects) > 0)
 			_SET_BIT(svrsock.state, SOCKET_READABLE);
 		else
@@ -555,10 +646,10 @@ void vSendSocketTask(void *__p) {
 	uint16_t id;
 	uint16_t len;
 	char send_header[30]; /* "AT+CIPSEND=id,len\r\n" */
-	char res[44];
+	char res[32];
 	ssize_t l, n;
 
-	char debug[30];
+	//char debug[30];
 
 #define MAX_SOCKETSENDBUFLEN	2048
 
@@ -619,7 +710,7 @@ void vSendSocketTask(void *__p) {
 
 		//USART_Printf(USART2, res);
 
-		snprintf(send_header, 36, "AT+CIPSEND=%d,%d\r\r\n\r\nOK\r\n> ", id, len);
+		snprintf(send_header, 30, "AT+CIPSEND=%d,%d\r\r\n\r\nOK\r\n> ", id, len);
 		//snprintf(debug, 36, "\t\t\tSent send command get %d bytes\r\n", n);
 		//USART_Printf(USART2, debug);
 		//USART_Printf(USART2, res);
@@ -648,77 +739,99 @@ void vSendSocketTask(void *__p) {
 		}
 		res[n] = '\0';
 
-		USART_Printf(USART2, res);
-		if(sscanf(res, "\r\nRecv %d bytes\r\n\r\nSEND OK\r\n", &len) > 0) {
+		//USART_Printf(USART2, res);
+	//	if(sscanf(res, "\r\nRecv %d bytes\r\n\r\nSEND OK\r\n", &len) > 0) {
 			clisock[id].slen -= len;
 			clisock[id].sbuf += len;
-			snprintf(debug, 36, "\t\t\tSend really ok %d left\r\n", (int)clisock[id].slen);
-			USART_Printf(USART2, debug);
-		}
-		else {
-			USART_Printf(USART2, "\t\t\tSend failed\r\n");
-			break;
-		}
+	//		//snprintf(debug, 36, "\t\t\tSend really ok %d left\r\n", (int)clisock[id].slen);
+	//		//USART_Printf(USART2, debug);
+	//	}
+	//	else {
+	//		//USART_Printf(USART2, "\t\t\tSend failed\r\n");
+	//		break;
+	//	}
 	}
-
-	/* Releas ESP8266 UART channel usage mutex. */
-	USART_Printf(USART2, "\t\t\tGive mutex\r\n");
-	xSemaphoreGive(xUSART_Mutex);
 	/* Finish writing and clear the socket is not writing now. */
 	_CLR_BIT(clisock[id].state, SOCKET_WRITING);
-	snprintf(debug, 36, "\t\t\tID %d sent finished\r\n", id);
-	USART_Printf(USART2, debug);
+	//snprintf(debug, 36, "\t\t\tID %d sent finished\r\n", id);
+	//USART_Printf(USART2, debug);
+	//USART_Printf(USART2, "\t\tID sent finished\r\n");
+	
+	/* Releas ESP8266 UART channel usage mutex. */
+	USART_Printf(USART2, "\t\t\tSend socket none command\r\n");
+	_ESP8266_Command = ESP8266_NONE_COMMAND;
+	//xSemaphoreGive(xUSART_Mutex);
+	//GiveMutex(&xUSART_Mutex);
+	//USART_Printf(USART2, "\t\t\tSend socket gave mutex\r\n");
+//	if(xSemaphoreGive(xUSART_Mutex) != pdTRUE) {
+//	//if(GiveMutex(&xUSART_Mutex)) {
+//		USART_Printf(USART2, "\t\t\tDummy\r\n");
+//	}
+//	else {
+//		USART_Printf(USART2, "\t\t\tGive failed\r\n");
+//	}
+
 	/* Delete send socket task after it is finished. */
-	vTaskDelete(NULL);
+	//vTaskDelete(xCommandTask);
+//	vTaskDelete(NULL);
+//	while(1) {
+//		USART_Printf(USART2, "\t\t\tDeleted NULL\r\n");
+//		vTaskSuspend(NULL);
+//	}
 }
 
 ssize_t SendSocket(SOCKET s, void *buf, size_t len, int f) {
 	uint16_t id = Sock2ID(s);
 	BaseType_t xReturned;
-	ssize_t r = -1;
+	ssize_t r;
 
 	//char debug[30];
 
 	//snprintf(debug, 30, "\t\t\tSendSocket is called %d\r\n", (int)IsSocketReady2Write(s));
 	//USART_Printf(USART2, debug);
-	/* Check there are data to be sent. */
-	if(len > 0) {
+	/* Check there are data to be sent and the socket is ready to send. */
+	if((len > 0) && IsSocketReady2Write(s)) {
+		/* Set the socket is busy in writing now. */
+		_SET_BIT(clisock[id].state, SOCKET_WRITING);
+
 		/* Make sure there is no pending message of ESP8266 RX data. */
-		while(USART_Readable(USART6)) {
+		while(USART_Readable(USART6) || (_ESP8266_Command != ESP8266_NONE_COMMAND)) {
 			//USART_Printf(USART2, "\t\t\tWait RX buffer clean\r\n");
 			vTaskDelay(100);
 		}
 		/* Block to take ESP8266 UART channel usage mutex. */
-		while(xSemaphoreTake(xUSART_Mutex, 200) != pdTRUE) {
-			/* Wait for ESP8266 UART channel usage mutex. */
-			//USART_Printf(USART2, "\t\t\tWait to take mutex\r\n");
-			vTaskDelay(50);
-		}
-		//if(!_ISBIT_SET(clisock[id].state, SOCKET_WRITING)) {
-		if(IsSocketReady2Write(s)) {
-			/* The socket is writeable. */
-			/* Set the socket is busy in writing now. */
-			_SET_BIT(clisock[id].state, SOCKET_WRITING);
-			clisock[id].sbuf = buf;
-			clisock[id].slen = len;
-			xReturned = xTaskCreate(vSendSocketTask,
-									"Socket Send Task",
-									4*1024,
-									&(clisock[id].fd),
-									tskIDLE_PRIORITY,
-									NULL);
-			if(xReturned == pdPASS) {
-				//USART_Printf(USART2, "\t\tNew a write socket task\r\n");
-			}
-			else {
-				USART_Printf(USART2, "\t\tNew a write socket task failed\r\n");
-			}
+	//	while(xSemaphoreTake(xUSART_Mutex, 200) != pdTRUE) {
+	//	//while(!TakeMutex(&xUSART_Mutex)) {
+	//		/* Wait for ESP8266 UART channel usage mutex. */
+	//		//USART_Printf(USART2, "\t\t\tWait to take mutex\r\n");
+	//		vTaskDelay(50);
+	//	}
+
+		/* The socket is writeable now. */
+		clisock[id].sbuf = buf;
+		clisock[id].slen = len;
+		_working_sock = s;
+		_ESP8266_Command = ESP8266_SEND_COMMAND;
+		vTaskResume(xCommandTask);
+		//xReturned = xTaskCreate(vSendSocketTask,
+		//						"Socket Send Task",
+		//						9*1024,
+		//						&(clisock[id].fd),
+		//						tskIDLE_PRIORITY,
+		//						&xCommandTask);
+		//if(xReturned == pdPASS) {
+		//	//USART_Printf(USART2, "\t\tNew a write socket task\r\n");
 			errno = EAGAIN;
-		}
-		else {
-			/* The socket is busy in writing now. */
-			errno = EBUSY;
-		}
+			r = -1;
+		//}
+		//else {
+		//	xSemaphoreGive(xUSART_Mutex);
+		//	//GiveMutex(&xUSART_Mutex);
+		//	USART_Printf(USART2, "\t\tNew a write socket task failed\r\n");
+		//	/* The socket is not busy in writing now. */
+		//	_CLR_BIT(clisock[id].state, SOCKET_WRITING);
+		//	r = 0;
+		//}
 	}
 	else {
 		r = 0;
@@ -740,6 +853,7 @@ void vCloseSocketTask(void *__p) {
 	ps = (SOCKET *)__p;
 	id = Sock2ID(*ps);
 
+	USART_Printf(USART2, "\t\t\tLet's close socket\r\n");
 	/* Have close socket send command. */
 	snprintf(sd_sock, sizeof(sd_sock), "AT+CIPCLOSE=%d\r\n", id);
 	/* Send close socket command to ESP8266. */
@@ -759,8 +873,6 @@ void vCloseSocketTask(void *__p) {
 	}
 	res[n] = 0;
 
-	/* Releas ESP8266 UART channel usage mutex. */
-	xSemaphoreGive(xUSART_Mutex);
 	snprintf(debug, 30, "\tReceive %d bytes to task\r\n", n);
 	USART_Printf(USART2, debug);
 
@@ -770,38 +882,60 @@ void vCloseSocketTask(void *__p) {
 		clisock[id].state = 0;
 	}
 	/* Delete close socket task after the socket is closed. */
-	vTaskDelete(NULL);
-	USART_Printf(USART2, "Still in send socket\r\n");
+	//vTaskDelete(xCommandTask);
+	/* Releas ESP8266 UART channel usage mutex. */
+	USART_Printf(USART2, "\t\t\tClose socket none command\r\n");
+	_ESP8266_Command = ESP8266_NONE_COMMAND;
+	//xSemaphoreGive(xUSART_Mutex);
+	//GiveMutex(&xUSART_Mutex);
 }
 
 int ShutdownSocket(SOCKET s, int how) {
 	uint16_t id = Sock2ID(s);
 	BaseType_t xReturned;
 
+	char debug[30];
+
+	USART_Printf(USART2, "\t\tIn shutdown socket function\r\n");
+
 	if(_ISBIT_SET(clisock[id].state, SOCKET_USING)) {
 		/* Make sure there is no pending message of ESP8266 RX data. */
-		while(!USART_Readable(USART6)) {
-			USART_Printf(USART2, "\t\tLeft body in socket\r\n");
-			vTaskDelay(100);
+		while(USART_Readable(USART6) || (_ESP8266_Command != ESP8266_NONE_COMMAND)) {
+			//USART_Printf(USART2, "\t\tLeft body in socket\r\n");
+			snprintf(debug, 30, "\t\t%d %d", USART_Readable(USART6), _ESP8266_Command);
+			USART_Printf(USART2, debug);
+			vTaskDelay(1000);
 		}
 		/* Block to take ESP8266 UART channel usage mutex. */
-		while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
-			/* Wait for ESP8266 UART channel usage mutex. */
-			vTaskDelay(50);
-		}
-		xReturned = xTaskCreate(vCloseSocketTask,
-								"Close Socket Task",
-								3*1024,
-								&(clisock[id].fd),
-								tskIDLE_PRIORITY,
-								NULL);
-		if(xReturned == pdPASS) {
-			USART_Printf(USART2, "\t\tNew a close socket task\r\n");
-		}
-		else {
-			USART_Printf(USART2, "\t\tNew a close socket task failed\r\n");
-		}
+	//	while(xSemaphoreTake(xUSART_Mutex, 0) != pdTRUE) {
+	//	//while(!TakeMutex(&xUSART_Mutex)) {
+	//		USART_Printf(USART2, "\t\tShutdown try to get mutex\r\n");
+	//		/* Wait for ESP8266 UART channel usage mutex. */
+	//		vTaskDelay(1000);
+	//	}
+		USART_Printf(USART2, "\t\tGoing to do close socket task\r\n");
+		_working_sock = s;
+		_ESP8266_Command = ESP8266_CLOSE_COMMAND;
+		vTaskResume(xCommandTask);
+		//xReturned = xTaskCreate(vCloseSocketTask,
+		//						"Close Socket Task",
+		//						2*1024,
+		//						&(clisock[id].fd),
+		//						tskIDLE_PRIORITY,
+		//						&xCommandTask);
+		//if(xReturned == pdPASS) {
+		//	USART_Printf(USART2, "\t\tNew a close socket task\r\n");
+		//}
+		//else {
+		//	USART_Printf(USART2, "\t\tNew a close socket task failed\r\n");
+		//	xSemaphoreGive(xUSART_Mutex);
+		//	//GiveMutex(&xUSART_Mutex);
+		//}
 	}
+	else {
+		USART_Printf(USART2, "\t\tClose socket failed\r\n");
+	}
+	USART_Printf(USART2, "\t\tLeave close socket\r\n");
 	return 0;
 }
 

@@ -24,7 +24,7 @@ void MicroHTTPServer_task() {
 
 	/* Make sure the internet is worked. */
 	while(GetESP8266State() != ESP8266_LINKED) {
-		vTaskDelay(5000 * portTICK_PERIOD_MS);
+		vTaskDelay(portTICK_PERIOD_MS);
 	}
 
 	GPIO_ResetBits(LEDS_GPIO_PORT, GREEN);
@@ -34,7 +34,12 @@ void MicroHTTPServer_task() {
 	USART_Printf(USART2, "Going to start Micro HTTP Server.\r\n");
 	HTTPServerInit(&srv, MTS_PORT);
 	USART_Printf(USART2, "Micro HTTP Server started and listening.\r\n");
-	HTTPServerRunLoop(&srv, Dispatch);
+	//HTTPServerRunLoop(&srv, Dispatch);
+	while(1) {
+		//USART_Printf(USART2, "HTTP server run\r\n");
+		HTTPServerRun(&srv, Dispatch);
+		vTaskDelay(10);
+	}
 	HTTPServerClose(&srv);
 
 	vTaskDelete(NULL);
@@ -72,7 +77,7 @@ int main(void) {
 
 	xReturned = xTaskCreate(MicroHTTPServer_task,
 							"Micro HTTP Server",
-							15*1024,
+							8*1024,
 							NULL,
 							tskIDLE_PRIORITY,
 							NULL);
