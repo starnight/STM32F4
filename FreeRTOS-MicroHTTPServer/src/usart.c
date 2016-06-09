@@ -30,20 +30,11 @@ RX_QUEUE __rxQueue;
 uint8_t __rxBuf[RX_QUEUELEN];
 RX_QUEUE *rxQueue;
 
-static USART_CALLBACK OnUSART6Receive = NULL;
-static int *OnUSART6ReceivePA = NULL;
-
 /* Global varables to hold the state of the streams going to be send. */
 /* USART streams pool. */
 STREAM usart_stream[MAX_USART_STREAM];
 /* Index of current working stream. */
 uint8_t usart_stream_idx;
-
-/* Regist on USART6 receive callback function. */
-void RegistUSART6OnRecevie(USART_CALLBACK cb, void *pa) {
-	OnUSART6Receive = cb;
-	OnUSART6ReceivePA = pa;
-}
 
 /* Clear USART stream macro. */
 #define ClearStream(stream) {(stream)->pBuf = NULL; (stream)->BufLen = 0;}
@@ -209,7 +200,6 @@ void setup_usart(void) {
 	NVIC_EnableIRQ(USART6_IRQn);
 }
 
-#ifdef MIRROR_USART6
 /* Initialize the USART2. */
 void setup_usart2(void) {
 	USART_InitTypeDef USART_InitStructure;
@@ -251,7 +241,6 @@ void setup_usart2(void) {
 	/* Enable USART2. */
 	USART_Cmd(USART2, ENABLE);
 }
-#endif
 
 /* Read bytes array with designated length from RX Queue. */
 ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
@@ -333,7 +322,7 @@ void USART6_IRQHandler(void) {
 		/* Push data into RX Queue. */
 		rxdata = USART_ReadByte(USART6);
 #ifdef MIRROR_USART6
-		//USART_SendByte(USART2, rxdata);
+		USART_SendByte(USART2, rxdata);
 #endif
 		if(rxPipeState > 0) {
 			if(PushQueue(rxQueue, &rxdata)) {
@@ -370,9 +359,4 @@ void USART6_IRQHandler(void) {
 				USART_ITConfig(USART6, USART_IT_TXE, DISABLE);
 		}
 	}
-}
-
-void RegistUSART6OnReceive(USART_CALLBACK cb, void *pa) {
-	OnUSART6Receive = cb;
-	OnUSART6ReceivePA = pa;
 }

@@ -61,11 +61,10 @@ int main(void) {
 	/* Initial LEDs. */
 	setup_leds();
 
-#ifdef MIRROR_USART6
 	/* Initial console interface. */
 	setup_usart2();
 	USART_Printf(USART2, "USART2 initialized.\r\n");
-#endif
+
 	/* Initial wifi network interface ESP8266. */
 	InitESP8266();
 	USART_Printf(USART2, "USART6 initialized.\r\n");
