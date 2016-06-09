@@ -13,7 +13,6 @@ typedef struct _STREAM {
 } STREAM;
 
 /* Define the USART RX Queue for buffering. */
-//QueueHandle_t rxQueue;
 
 /* USART RX pipe enable flag. */
 uint8_t rxPipeState;
@@ -195,7 +194,6 @@ void setup_usart(void) {
 		usart_stream_idx--)
 		ClearStream(usart_stream + usart_stream_idx - 1);
 	/* Initial the RX Queue. */
-	//rxQueue = xQueueCreate(RX_QUEUELEN, sizeof(uint8_t));
 	rxQueue = &__rxQueue;
 	CreateQueue(rxQueue, __rxBuf, RX_QUEUELEN, sizeof(uint8_t));
 	if(rxQueue != NULL)
@@ -264,7 +262,6 @@ ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 
 	if(USARTx == USART6) {
 		for(i=0; i<l; i++) {
-			//if(!xQueueReceive(rxQueue, &(b[i]), 0)) {
 			if(!PopQueue(rxQueue, &(b[i]))){ 
 				break;
 			}
@@ -276,12 +273,7 @@ ssize_t USART_Read(USART_TypeDef *USARTx, void *buf, ssize_t l, uint8_t flags) {
 
 /* Check USART RX buffer is readable. */
 int USART_Readable(USART_TypeDef *USARTx) {
-	//if((USARTx == USART6) && (uxQueueMessagesWaiting(rxQueue)))
-	//	return 1;
-	//else
-	//	return 0;
 	if(USARTx == USART6) {
-		//return uxQueueMessagesWaiting(rxQueue);
 		return QueueMessagesWaiting(rxQueue);
 	}
 	else {
@@ -344,7 +336,6 @@ void USART6_IRQHandler(void) {
 		//USART_SendByte(USART2, rxdata);
 #endif
 		if(rxPipeState > 0) {
-			//if(xQueueSendToBackFromISR(rxQueue, &rxdata, &xHigherPriTaskWoken) == pdPASS)
 			if(PushQueue(rxQueue, &rxdata)) {
 				GPIO_SetBits(LEDS_GPIO_PORT, RED);
 				GPIO_ResetBits(LEDS_GPIO_PORT, BLUE);
@@ -379,13 +370,6 @@ void USART6_IRQHandler(void) {
 				USART_ITConfig(USART6, USART_IT_TXE, DISABLE);
 		}
 	}
-
-	//if(xHigherPriTaskWoken) {
-		//taskYIELD_FROM_ISR(xHigherPriTaskWoken);
-	//	taskYIELD();
-		//vPortYieldFromISR();
-	//}
-	//portEND_SWITCHING_ISR(xHigherPriTaskWoken);
 }
 
 void RegistUSART6OnReceive(USART_CALLBACK cb, void *pa) {
